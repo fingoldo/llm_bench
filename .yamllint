@@ -1,0 +1,17 @@
+# yamllint config for llm_bench. Line-length mirrors [tool.black] / [tool.ruff] in pyproject.toml
+# (line-length = 160), so the blocking yamllint pre-commit/CI step stops flagging every workflow
+# comment line as an "error" under yamllint's 80-char default and instead surfaces genuine YAML
+# style/schema issues. Mirrors mlframe's and pyutilz's own .yamllint (2026-07-11).
+extends: default
+
+rules:
+  line-length:
+    max: 160
+  document-start: disable
+  truthy:
+    allowed-values: ["true", "false"]
+    check-keys: false
+  # .github/workflows/*.yml and .pre-commit-config.yaml are committed with CRLF line endings on
+  # this Windows dev machine -- not a bug in either file, and not something a single project-wide
+  # convention change should churn just to satisfy this rule.
+  new-lines: disable

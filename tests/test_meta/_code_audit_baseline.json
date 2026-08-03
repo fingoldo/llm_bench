@@ -1,0 +1,21 @@
+[
+  "asymmetric_resource_guard::storage/file.py:211",
+  "asymmetric_resource_guard::storage/postgres.py:332",
+  "asymmetric_resource_guard::storage/postgres.py:532",
+  "broad_except_swallow::runner/benchmark.py:161",
+  "default_via_or::cost/estimator.py:228",
+  "default_via_or::cost/estimator.py:231",
+  "default_via_or::cost/openrouter.py:82",
+  "default_via_or::halving/assignment.py:51",
+  "default_via_or::halving/driver.py:239",
+  "default_via_or::ranking/ranker.py:226",
+  "default_via_or::runner/benchmark.py:239",
+  "default_via_or::runner/benchmark.py:240",
+  "default_via_or::runner/round_runner.py:702",
+  "default_via_or::storage/postgres.py:389",
+  "duplicate_credential_regex::core/redaction.py:32",
+  "duplicate_function_body_subset::storage/file.py:149",
+  "duplicate_function_body_subset::storage/file.py:265",
+  "duplicate_function_body_subset::storage/memory.py:145",
+  "getattr_unknown_attribute::cli/main.py:132"
+]

@@ -1,0 +1,44 @@
+name: MyPy
+
+# Whole-project mypy check via the shared reusable workflow (fingoldo/py-ci-shared), mirroring
+# mlframe's mypy-full.yml. The install-command matches ci.yml's own `test` job install step
+# (pyutilz sibling clone, not yet on PyPI, plus llm_bench's [dev,postgres] extras) so mypy sees
+# the real dependency graph instead of collapsing every import to Any.
+#
+# `advisory: false`: src/llm_bench's whole-tree mypy backlog was already closed to 0 findings
+# 2026-07-11 (see .pre-commit-config.yaml's mypy-blocking hook, which runs the same whole-tree
+# check as a blocking pre-commit gate) -- this is a real blocking CI gate, not advisory.
+#
+# Known gap (2026-07-22): the pre-commit mypy-blocking hook now also checks `tests/` (measured 0
+# findings there, closing a previously-dead `[[tool.mypy.overrides]] module = "tests.*"` config
+# entry that nothing had ever exercised -- audit: 02-Low). This CI job still only covers
+# `package-name: llm_bench` (src/llm_bench) since the shared fingoldo/py-ci-shared reusable
+# workflow's parameter surface doesn't currently expose a way to add an extra path here without
+# either a change to that separate repo or replacing the reusable-workflow call with an inline
+# mypy step -- left as a real, acknowledged parity gap rather than an unverified edit to
+# infrastructure this repo doesn't own.
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mypy-full:
+    permissions:
+      contents: read
+    uses: fingoldo/py-ci-shared/.github/workflows/mypy-full.yml@f26052fd4fee0d667aa6f4c3290d77e7ca6c1c06  # v1.2.0
+    with:
+      package-name: llm_bench
+      mypy-version: "2.1.0"
+      advisory: false
+      install-command: |
+        git clone https://github.com/fingoldo/pyutilz.git
+        git -C pyutilz checkout 4adc276947fcfc730cff796b25f72ab50aad9617
+        uv pip install --system "./pyutilz[llm]" -e ".[dev,postgres]"

@@ -1,0 +1,676 @@
+{
+  "package_all": [
+    "Benchmark",
+    "BenchmarkStorage",
+    "BudgetGate",
+    "CachedResponse",
+    "CatalogueEntry",
+    "CostEstimate",
+    "CostFilter",
+    "CostProfile",
+    "DEAD_ERROR_CLASSES",
+    "ExperimentTag",
+    "FileStorage",
+    "GoldChecker",
+    "Halving",
+    "HalvingSchedule",
+    "InMemoryStorage",
+    "ModelCatalogue",
+    "OpenRouterCatalogue",
+    "PhaseReport",
+    "PostgresStorage",
+    "PreflightResult",
+    "PromptBuilder",
+    "RankingReport",
+    "ResponseParser",
+    "ResumeCache",
+    "RoundConfig",
+    "RoundResult",
+    "RowScorer",
+    "RunRow",
+    "Stage",
+    "StageBudget",
+    "StageGraph",
+    "StageRanking",
+    "TRANSIENT_ERROR_CLASSES",
+    "TaskPool",
+    "TaskUnit",
+    "WinnerSet",
+    "__version__",
+    "allowed_validator_pairs",
+    "assign_task_units_for_round",
+    "classify_provider_error",
+    "compute_ranking",
+    "cost_tiebreak_key",
+    "default_row_scorer",
+    "estimate_call_cost",
+    "estimate_top_n_by_cost",
+    "is_alive_candidate",
+    "load_dead_model_ids",
+    "load_winner_substrate",
+    "mad_bootstrap_prune",
+    "run_round",
+    "select_per_stage_winners",
+    "select_validator_for_producer"
+  ],
+  "symbols": {
+    "Benchmark": {
+      "bases": [],
+      "dataclass_fields": [
+        "_initialized",
+        "_resume_cache",
+        "budget_gate",
+        "cost_filter",
+        "global_concurrency",
+        "gold_checker",
+        "halving_schedule",
+        "per_op_concurrency",
+        "provider_factory",
+        "provider_label",
+        "row_scorer",
+        "stages",
+        "storage",
+        "task_pool",
+        "thinking"
+      ],
+      "kind": "class",
+      "methods": [
+        "aclose",
+        "initialize",
+        "preflight",
+        "run_phase"
+      ],
+      "name": "Benchmark"
+    },
+    "BenchmarkStorage": {
+      "bases": [
+        "Protocol"
+      ],
+      "kind": "class",
+      "methods": [
+        "close",
+        "delete_experiment",
+        "get_cached",
+        "initialize",
+        "load_winners",
+        "persist_winners",
+        "prefetch_resume_cache",
+        "query_rows",
+        "query_spend_by_op",
+        "query_spend_by_stage",
+        "query_spend_total",
+        "record_call",
+        "upsert_prompts"
+      ],
+      "name": "BenchmarkStorage"
+    },
+    "BudgetGate": {
+      "bases": [],
+      "dataclass_fields": [
+        "_lock",
+        "_reserved_by_key",
+        "_seeded_keys",
+        "_spent_by_key",
+        "budgets_by_op",
+        "last_call_cost_by_op"
+      ],
+      "kind": "class",
+      "methods": [
+        "check",
+        "record_cost"
+      ],
+      "name": "BudgetGate"
+    },
+    "CachedResponse": {
+      "bases": [],
+      "dataclass_fields": [
+        "composite_hash",
+        "cost_usd",
+        "input_tokens",
+        "output_tokens",
+        "reasoning_tokens",
+        "response",
+        "source_tag",
+        "thinking"
+      ],
+      "kind": "class",
+      "methods": [],
+      "name": "CachedResponse"
+    },
+    "CatalogueEntry": {
+      "bases": [],
+      "dataclass_fields": [
+        "best_latency_p50_ms",
+        "best_throughput_p50_tps",
+        "best_upstream_provider",
+        "best_uptime_30m",
+        "context_length",
+        "input_cache_read_price_per_m",
+        "input_price_per_m",
+        "is_moderated",
+        "max_completion_tokens",
+        "model_id",
+        "output_price_per_m",
+        "supports_json_mode",
+        "supports_reasoning"
+      ],
+      "kind": "class",
+      "methods": [],
+      "name": "CatalogueEntry"
+    },
+    "CostEstimate": {
+      "bases": [],
+      "dataclass_fields": [
+        "cached_input_cost",
+        "cost_usd",
+        "entry",
+        "fresh_input_cost",
+        "has_cache_pricing",
+        "output_cost",
+        "per_request_fee"
+      ],
+      "kind": "class",
+      "methods": [],
+      "name": "CostEstimate"
+    },
+    "CostFilter": {
+      "bases": [],
+      "dataclass_fields": [
+        "exclude_moderated",
+        "max_input_price_per_m",
+        "max_output_price_per_m",
+        "min_context_length",
+        "min_uptime",
+        "moderated_penalty",
+        "require_healthy",
+        "require_json_mode"
+      ],
+      "kind": "class",
+      "methods": [
+        "keep"
+      ],
+      "name": "CostFilter"
+    },
+    "CostProfile": {
+      "bases": [],
+      "dataclass_fields": [
+        "cache_hit_ratio",
+        "output_tokens",
+        "reasoning_tokens",
+        "system_tokens",
+        "user_tokens"
+      ],
+      "kind": "class",
+      "methods": [],
+      "name": "CostProfile"
+    },
+    "DEAD_ERROR_CLASSES": {
+      "kind": "frozenset",
+      "name": "DEAD_ERROR_CLASSES"
+    },
+    "ExperimentTag": {
+      "kind": "NewType",
+      "name": "ExperimentTag"
+    },
+    "FileStorage": {
+      "bases": [],
+      "kind": "class",
+      "methods": [
+        "close",
+        "delete_experiment",
+        "get_cached",
+        "initialize",
+        "load_winners",
+        "persist_winners",
+        "prefetch_resume_cache",
+        "query_rows",
+        "query_spend_by_op",
+        "query_spend_by_stage",
+        "query_spend_total",
+        "record_call",
+        "upsert_prompts"
+      ],
+      "name": "FileStorage"
+    },
+    "GoldChecker": {
+      "bases": [
+        "Protocol"
+      ],
+      "kind": "class",
+      "methods": [
+        "score"
+      ],
+      "name": "GoldChecker"
+    },
+    "Halving": {
+      "bases": [],
+      "dataclass_fields": [
+        "error_history",
+        "last_eff_cost",
+        "last_score_bonus",
+        "schedule",
+        "survivors_by_round"
+      ],
+      "kind": "class",
+      "methods": [
+        "promote"
+      ],
+      "name": "Halving"
+    },
+    "HalvingSchedule": {
+      "bases": [],
+      "dataclass_fields": [
+        "pool_size",
+        "round_sizes",
+        "units_per_arm"
+      ],
+      "kind": "class",
+      "methods": [
+        "n_calls_for_stage",
+        "next_round_size",
+        "total_calls_for_stage"
+      ],
+      "name": "HalvingSchedule"
+    },
+    "InMemoryStorage": {
+      "bases": [],
+      "kind": "class",
+      "methods": [
+        "close",
+        "delete_experiment",
+        "get_cached",
+        "initialize",
+        "load_winners",
+        "persist_winners",
+        "prefetch_resume_cache",
+        "query_rows",
+        "query_spend_by_op",
+        "query_spend_by_stage",
+        "query_spend_total",
+        "record_call",
+        "upsert_prompts"
+      ],
+      "name": "InMemoryStorage"
+    },
+    "ModelCatalogue": {
+      "bases": [
+        "Protocol"
+      ],
+      "kind": "class",
+      "methods": [
+        "list_models"
+      ],
+      "name": "ModelCatalogue"
+    },
+    "OpenRouterCatalogue": {
+      "bases": [],
+      "kind": "class",
+      "methods": [
+        "list_models"
+      ],
+      "name": "OpenRouterCatalogue"
+    },
+    "PhaseReport": {
+      "bases": [],
+      "dataclass_fields": [
+        "elapsed_sec",
+        "experiment_tag",
+        "final_candidates",
+        "final_ranking",
+        "preflight",
+        "rounds"
+      ],
+      "kind": "class",
+      "methods": [],
+      "name": "PhaseReport"
+    },
+    "PostgresStorage": {
+      "bases": [],
+      "kind": "class",
+      "methods": [
+        "close",
+        "delete_experiment",
+        "get_cached",
+        "initialize",
+        "load_winners",
+        "persist_winners",
+        "prefetch_resume_cache",
+        "query_rows",
+        "query_spend_by_op",
+        "query_spend_by_stage",
+        "query_spend_total",
+        "record_call",
+        "upsert_prompts"
+      ],
+      "name": "PostgresStorage"
+    },
+    "PreflightResult": {
+      "bases": [],
+      "dataclass_fields": [
+        "error_class",
+        "error_message",
+        "latency_sec",
+        "model",
+        "ok"
+      ],
+      "kind": "class",
+      "methods": [],
+      "name": "PreflightResult"
+    },
+    "PromptBuilder": {
+      "bases": [
+        "Protocol"
+      ],
+      "kind": "class",
+      "methods": [],
+      "name": "PromptBuilder"
+    },
+    "RankingReport": {
+      "bases": [],
+      "dataclass_fields": [
+        "experiment_tag",
+        "gold_accuracy",
+        "n_rows",
+        "per_model_summary",
+        "stages"
+      ],
+      "kind": "class",
+      "methods": [],
+      "name": "RankingReport"
+    },
+    "ResponseParser": {
+      "bases": [
+        "Protocol"
+      ],
+      "kind": "class",
+      "methods": [],
+      "name": "ResponseParser"
+    },
+    "ResumeCache": {
+      "bases": [],
+      "kind": "class",
+      "methods": [
+        "get",
+        "populate_from_storage",
+        "put"
+      ],
+      "name": "ResumeCache"
+    },
+    "RoundConfig": {
+      "bases": [],
+      "dataclass_fields": [
+        "budget_gate",
+        "candidates",
+        "experiment_tag",
+        "global_concurrency",
+        "gold_checker",
+        "halving",
+        "per_op_concurrency",
+        "provider_factory",
+        "provider_label",
+        "quarantine_cost_multiplier",
+        "quarantine_duration_sec",
+        "resume_cache",
+        "round_idx",
+        "row_scorer",
+        "schedule",
+        "stages",
+        "storage",
+        "task_units",
+        "thinking"
+      ],
+      "kind": "class",
+      "methods": [],
+      "name": "RoundConfig"
+    },
+    "RoundResult": {
+      "bases": [],
+      "dataclass_fields": [
+        "candidates_in",
+        "candidates_out",
+        "effective_cost_per_call",
+        "eliminated",
+        "eliminated_reasons",
+        "notes",
+        "round_idx",
+        "scores",
+        "specialty_preserved",
+        "stage"
+      ],
+      "kind": "class",
+      "methods": [],
+      "name": "RoundResult"
+    },
+    "RowScorer": {
+      "bases": [
+        "Protocol"
+      ],
+      "kind": "class",
+      "methods": [],
+      "name": "RowScorer"
+    },
+    "RunRow": {
+      "bases": [],
+      "dataclass_fields": [
+        "cache_discount_usd",
+        "cache_hit_tokens",
+        "cache_write_tokens",
+        "composite_hash",
+        "cost_usd",
+        "effective_cost_usd",
+        "error_class",
+        "error_message",
+        "experiment_tag",
+        "generation_details",
+        "generation_id",
+        "http_status_sequence",
+        "input_tokens",
+        "is_byok",
+        "lang",
+        "logs",
+        "logs_compressed",
+        "mean_attempt_duration_sec",
+        "model",
+        "n_attempts",
+        "native_finish_reason",
+        "output_tokens",
+        "parent_prompt_hash",
+        "parse_failure_prefix",
+        "per_attempt_durations_sec",
+        "provider",
+        "reasoning_tokens",
+        "response",
+        "stage",
+        "stratum",
+        "task_unit_id",
+        "thinking",
+        "ts",
+        "upstream_model",
+        "upstream_provider",
+        "upstream_resolved_model",
+        "web_search_citations"
+      ],
+      "kind": "class",
+      "methods": [],
+      "name": "RunRow"
+    },
+    "Stage": {
+      "bases": [],
+      "dataclass_fields": [
+        "budget_per_call",
+        "id",
+        "is_validator",
+        "lang",
+        "op",
+        "parent_stage",
+        "parser",
+        "prompt_builder"
+      ],
+      "kind": "class",
+      "methods": [],
+      "name": "Stage"
+    },
+    "StageBudget": {
+      "bases": [],
+      "dataclass_fields": [
+        "cap_usd",
+        "headroom_factor"
+      ],
+      "kind": "class",
+      "methods": [],
+      "name": "StageBudget"
+    },
+    "StageGraph": {
+      "bases": [],
+      "dataclass_fields": [
+        "stages"
+      ],
+      "kind": "class",
+      "methods": [
+        "by_id",
+        "topo_order"
+      ],
+      "name": "StageGraph"
+    },
+    "StageRanking": {
+      "bases": [],
+      "dataclass_fields": [
+        "model_avg_input_tokens",
+        "model_avg_latency_sec",
+        "model_avg_output_tokens",
+        "model_avg_reasoning_tokens",
+        "model_cost",
+        "model_eff_cost",
+        "model_scores",
+        "model_task_unit_scores",
+        "rows",
+        "stage",
+        "winner"
+      ],
+      "kind": "class",
+      "methods": [],
+      "name": "StageRanking"
+    },
+    "TRANSIENT_ERROR_CLASSES": {
+      "kind": "frozenset",
+      "name": "TRANSIENT_ERROR_CLASSES"
+    },
+    "TaskPool": {
+      "bases": [
+        "Protocol"
+      ],
+      "kind": "class",
+      "methods": [
+        "sample",
+        "total_size"
+      ],
+      "name": "TaskPool"
+    },
+    "TaskUnit": {
+      "bases": [],
+      "dataclass_fields": [
+        "id",
+        "metadata",
+        "stratum"
+      ],
+      "kind": "class",
+      "methods": [],
+      "name": "TaskUnit"
+    },
+    "WinnerSet": {
+      "bases": [],
+      "dataclass_fields": [
+        "candidates_out",
+        "experiment_tag",
+        "round_idx",
+        "runner_up",
+        "stage_scores",
+        "winners"
+      ],
+      "kind": "class",
+      "methods": [
+        "get"
+      ],
+      "name": "WinnerSet"
+    },
+    "__version__": {
+      "kind": "str",
+      "name": "__version__"
+    },
+    "allowed_validator_pairs": {
+      "kind": "function",
+      "name": "allowed_validator_pairs",
+      "signature": "(candidates: 'list[str]', *, rng_seed: 'int' = 0) -> 'list[tuple[str, str]]'"
+    },
+    "assign_task_units_for_round": {
+      "kind": "function",
+      "name": "assign_task_units_for_round",
+      "signature": "(candidates: 'list[str]', pool: 'list[str]', round_idx: 'int', schedule: 'HalvingSchedule | None' = None, *, rng_seed: 'int' = 0) -> 'dict[str, list[str]]'"
+    },
+    "classify_provider_error": {
+      "kind": "function",
+      "name": "classify_provider_error",
+      "signature": "(exc_name: 'str', message: 'str | None') -> 'str'"
+    },
+    "compute_ranking": {
+      "kind": "function",
+      "name": "compute_ranking",
+      "signature": "(storage: 'BenchmarkStorage', experiment_tag: 'ExperimentTag', *, row_scorer: 'RowScorer | None' = None, gold_checker: 'GoldChecker | None' = None, gold_blend_weight: 'float' = 0.3, task_unit_lookup: 'Callable[[str], Any] | None' = None) -> 'RankingReport'"
+    },
+    "cost_tiebreak_key": {
+      "kind": "function",
+      "name": "cost_tiebreak_key",
+      "signature": "(model: 'str', score: 'float', *, eff_cost: 'dict[str, float]', higher_score_better: 'bool' = True, mean_latency_sec: 'dict[str, float] | None' = None) -> 'tuple[float, float, str]'"
+    },
+    "default_row_scorer": {
+      "kind": "function",
+      "name": "default_row_scorer",
+      "signature": "(row: 'RunRow') -> 'float'"
+    },
+    "estimate_call_cost": {
+      "kind": "function",
+      "name": "estimate_call_cost",
+      "signature": "(*, input_price_per_m: 'float | None', output_price_per_m: 'float | None', cache_read_price_per_m: 'float | None', request_fee: 'float' = 0.0, profile: 'CostProfile') -> 'tuple[float, float, float, float, bool] | None'"
+    },
+    "estimate_top_n_by_cost": {
+      "kind": "function",
+      "name": "estimate_top_n_by_cost",
+      "signature": "(catalogue: 'ModelCatalogue', *, n: 'int' = 50, profile: 'CostProfile | None' = None, filter_: 'CostFilter | None' = None, include_reasoning_models: 'bool' = True, include_topn_best_by_provider: 'int' = 1, refresh: 'bool' = False, blacklist: 'Iterable[str] | None' = None) -> 'list[CostEstimate]'"
+    },
+    "is_alive_candidate": {
+      "kind": "function",
+      "name": "is_alive_candidate",
+      "signature": "(model: 'str', *, error_history: 'dict[str, list[str]] | None' = None, timeout_threshold: 'int' = 3, transient_threshold: 'int | None' = None) -> 'tuple[bool, str | None]'"
+    },
+    "load_dead_model_ids": {
+      "kind": "function",
+      "name": "load_dead_model_ids",
+      "signature": "(storage: \"'BenchmarkStorage'\", *, min_calls: 'int' = 5, experiment_tag: 'ExperimentTag | None' = None) -> 'set[str]'"
+    },
+    "load_winner_substrate": {
+      "kind": "function",
+      "name": "load_winner_substrate",
+      "signature": "(storage: \"'BenchmarkStorage'\", *, winners: 'WinnerSet', stage: 'str', task_unit_id: 'str', experiment_tag: 'ExperimentTag | None' = None) -> 'RunRow | None'"
+    },
+    "mad_bootstrap_prune": {
+      "kind": "function",
+      "name": "mad_bootstrap_prune",
+      "signature": "(scores: 'dict[str, float]', *, n_bootstrap: 'int' = 1000, mad_threshold: 'float' = 2.5, rng_seed: 'int' = 0, per_task_unit_scores: 'dict[str, list[float]] | None' = None, eff_cost: 'dict[str, float] | None' = None, cost_penalty_factor: 'float' = 0.1, variance_penalty_factor: 'float' = 0.2) -> 'tuple[set[str], dict[str, float]]'"
+    },
+    "run_round": {
+      "kind": "function",
+      "name": "run_round",
+      "signature": "(cfg: 'RoundConfig') -> 'RoundResult'"
+    },
+    "select_per_stage_winners": {
+      "kind": "function",
+      "name": "select_per_stage_winners",
+      "signature": "(report: \"'RankingReport'\", *, experiment_tag: 'ExperimentTag', round_idx: 'int', candidates_out: 'list[str] | None' = None) -> 'WinnerSet'"
+    },
+    "select_validator_for_producer": {
+      "kind": "function",
+      "name": "select_validator_for_producer",
+      "signature": "(producer_model: 'str', candidate_pool: 'list[str]', *, eff_cost: 'dict[str, float] | None' = None, rng_seed: 'int' = 0) -> 'str | None'"
+    }
+  }
+}

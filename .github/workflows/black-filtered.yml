@@ -1,0 +1,27 @@
+name: Black
+
+# Filtered Black format check via the shared reusable workflow (fingoldo/py-ci-shared), mirroring
+# mlframe's black-filtered.yml. Flags any Black finding EXCEPT blank-line insertion and arg/
+# import-list explosion, which this project deliberately keeps unchanged (see
+# .pre-commit-config.yaml's format-lint-warn / black hooks for the same rationale). This is the
+# real CI gate; the repo's own pre-commit `black` hook stays manual-stage only so raw/unfiltered
+# black never auto-churns a diff locally -- use
+# `python -m py_ci_shared.black_filtered_apply --write <files>` for a sanctioned local pass.
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  black:
+    permissions:
+      contents: read
+    uses: fingoldo/py-ci-shared/.github/workflows/black-filtered.yml@1fd408df105f2a7d22d36a239d94a39ef888305a  # v1.2.1
+    with:
+      check-path: src/llm_bench

@@ -1,0 +1,21 @@
+{
+  "test_asymmetric_resource_guards.py::_WHITELIST": 6,
+  "test_asyncpg_pool_timeout.py::_WHITELIST": 0,
+  "test_code_audit_baseline.py::_EXCLUDE_DIRS": 1,
+  "test_deferred_whitelist_drift.py::_WHITELIST": 0,
+  "test_deptry_ignores_not_stale.py::_WHITELIST": 0,
+  "test_duplicate_magic_literals.py::_WHITELIST": 0,
+  "test_no_mojibake_in_source.py::_WHITELIST": 0,
+  "test_no_source_text_proxy_assertions.py::_GETSOURCE_WHITELIST": 0,
+  "test_no_source_text_proxy_assertions.py::_READ_TEXT_FIND_WHITELIST": 0,
+  "test_no_unicode_in_console_output.py::_WHITELIST": 0,
+  "test_phantom_file_references.py::_WHITELIST": 0,
+  "test_precommit_ci_parity.py::_LOCAL_ONLY_ALLOWLIST": 2,
+  "test_protocol_async_optional_dispatch.py::_WHITELIST": 0,
+  "test_readme_snippet_signatures.py::_WHITELIST": 0,
+  "test_resource_handle_safety.py::_WHITELIST": 0,
+  "test_sql_index_coverage_advisory.py::_WHITELIST": 2,
+  "test_storage_backend_hardening.py::_WHITELIST": 0,
+  "test_todo_hygiene.py::_WHITELIST": 0,
+  "test_unwired_capabilities.py::_WHITELIST": 0
+}

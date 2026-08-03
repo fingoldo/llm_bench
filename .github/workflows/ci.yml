@@ -1,0 +1,278 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+# No job here writes to the repo, comments on a PR, or uploads to an external registry --
+# read-only contents access covers checkout for every job (test/lint/meta/build).
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: pytest ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+
+    services:
+      # Postgres available for tests/integration/test_smoke_postgres.py
+      # Tests that need it set @pytest.mark.postgres + read LLM_BENCH_TEST_DB_URL
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: llm_bench_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      LLM_BENCH_TEST_DB_URL: postgresql://postgres:postgres@localhost:5432/llm_bench_test
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # uv resolves and installs in parallel (~10x faster than pip) and caches
+      # the wheel graph across runs keyed by pyproject.toml.
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+
+      - name: Clone & install pyutilz + llm_bench in one uv resolution
+        # pyutilz is a first-party sibling dep not yet on PyPI: clone it and install from the local path so
+        # llm_bench's `pyutilz>=1.0` resolves to it. Installed in a SINGLE `uv pip install` alongside
+        # llm_bench's own [dev,postgres] extras so the resolver sees the whole graph at once.
+        run: |
+          git clone https://github.com/fingoldo/pyutilz.git
+          git -C pyutilz checkout 4adc276947fcfc730cff796b25f72ab50aad9617
+          uv pip install --system "./pyutilz[llm]" -e ".[dev,postgres]"
+
+      - name: Show installed versions
+        run: |
+          python -c "import llm_bench; print('llm_bench', llm_bench.__version__)"
+          python -c "import pyutilz; print('pyutilz OK')"
+
+      - name: Run tests with coverage (offline + postgres, skip live)
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: |
+          pytest -m "not live" --cov=src/llm_bench --cov-report=xml --cov-report=term-missing --timeout=300
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238  # v4
+        if: matrix.python-version == '3.11'
+        with:
+          file: ./coverage.xml
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  lint:
+    name: lint + security
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+        with:
+          python-version: "3.11"
+
+      # uvx runs each tool from uv's cache with no explicit install step.
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5
+        with:
+          enable-cache: true
+
+      # pyproject.toml's [tool.ruff] extend = "$PY_CI_SHARED_DIR/configs/ruff-base.toml" -- ruff
+      # expands env vars in `extend` paths (docs.astral.sh/ruff/settings), so this just needs to
+      # point at ANY real py-ci-shared checkout. See that repo's README "Using the shared ruff
+      # config" section for the full rationale.
+      - name: Resolve PY_CI_SHARED_DIR
+        run: |
+          git clone --depth 1 https://github.com/fingoldo/py-ci-shared.git "${RUNNER_TEMP}/py-ci-shared"
+          echo "PY_CI_SHARED_DIR=${RUNNER_TEMP}/py-ci-shared" >> "$GITHUB_ENV"
+
+      # Blocking, `--ignore C901` to match the pre-commit `ruff-real-bugs` hook
+      # exactly (see .pre-commit-config.yaml): this project treats complexity
+      # as a taste/design-debt signal, not a real-bug gate -- it's surfaced
+      # separately, always advisory, via the `lint-advisory-warn` pre-commit
+      # hook (full-select ruff + mccabe + pip-audit). Previously
+      # `continue-on-error: true` made EVERY ruff finding advisory-only
+      # regardless of severity, hiding real bugs behind the same escape
+      # hatch as the deliberately-advisory complexity findings (audit:
+      # 10-High) -- this restores the local/CI split pre-commit already had.
+      - name: Run ruff (real bugs, matches pre-commit's ruff-real-bugs hook)
+        run: uvx ruff check --ignore C901 src/
+
+      # Filtered wrapper, not raw black -- this job already duplicates the dedicated
+      # black-filtered.yml gate elsewhere in CI (that one IS blocking), so staying
+      # advisory here avoids double-failing a PR on the same finding through two
+      # separate jobs; the two excluded diff classes stay intentionally unflagged
+      # in both places for the same reason. Switched 2026-07-18.
+      - name: Run black --check (filtered)
+        run: |
+          uv pip install --system "py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@a49421c79f4262326295ed14ed3859e9b85fdc5b"
+          python -m py_ci_shared.black_filtered_apply --config pyproject.toml --check src/
+        continue-on-error: true
+
+      # Blocking: src/ currently has zero bandit findings at -ll (verified
+      # 2026-07-22); the existing `# nosec B608` suppressions in postgres.py
+      # are backed by a runtime schema-identifier validation check, not bare
+      # convention, so silencing this gate hid a real signal for no reason
+      # (audit: 10-High -- same continue-on-error issue as ruff above).
+      - name: Run bandit security scan
+        run: uvx bandit -r src/ -ll -f json -o bandit-report.json
+
+      - name: Upload bandit results
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        if: always()
+        with:
+          name: bandit-report
+          path: bandit-report.json
+
+  hygiene:
+    # Mirrors 6 pre-commit hooks that are BLOCKING locally (vulture, interrogate,
+    # deptry, codespell, yamllint, zizmor -- see .pre-commit-config.yaml) but,
+    # until this job existed, had no CI equivalent at all: `git commit --no-verify`
+    # or a PR opened without pre-commit installed locally shipped through every
+    # other green check with zero coverage from any of the six (audit: 10-High).
+    # actionlint and detect-secrets are pre-commit-only still (both are
+    # third-party-repo hooks rather than this project's own `local` entries;
+    # detect-secrets specifically could not be verified to run cleanly against
+    # this environment's Python during this fix pass, so it was deliberately
+    # left as a known gap rather than wired in unverified).
+    name: hygiene gates (pre-commit parity)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+
+      - name: Clone & install pyutilz + llm_bench
+        run: |
+          git clone https://github.com/fingoldo/pyutilz.git
+          git -C pyutilz checkout 4adc276947fcfc730cff796b25f72ab50aad9617
+          uv pip install --system "./pyutilz[llm]" -e ".[dev,postgres]"
+
+      - name: vulture dead-code scan
+        run: python -m vulture src/llm_bench --min-confidence 80
+
+      - name: interrogate docstring coverage
+        run: python -m interrogate src/llm_bench
+
+      - name: deptry dependency check
+        run: python -m deptry .
+
+      - name: codespell prose typo check
+        run: python -m codespell_lib --toml pyproject.toml src/llm_bench
+
+      - name: yamllint workflow files
+        run: python -m yamllint .github/workflows .pre-commit-config.yaml
+
+      - name: zizmor workflow security scan
+        run: uvx zizmor .
+
+  meta:
+    # Mirrors the pre-commit hook for PRs that bypass pre-commit.
+    name: meta-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+
+      - name: Clone & install pyutilz + llm_bench
+        run: |
+          git clone https://github.com/fingoldo/pyutilz.git
+          git -C pyutilz checkout 4adc276947fcfc730cff796b25f72ab50aad9617
+          uv pip install --system "./pyutilz[llm]" -e ".[dev]"
+
+      - name: Run meta-tests (alias / API / optional-deps / side effects)
+        run: pytest tests/test_meta/ --no-cov -p no:randomly -q
+
+  build:
+    name: build sdist + wheel + install smoke
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5
+        with:
+          enable-cache: true
+
+      - name: Build distributions
+        run: uv build
+
+      - name: Verify distributions with twine
+        run: uvx twine check dist/*
+
+      # Install the BUILT wheel (not the editable checkout) into a clean venv to
+      # confirm package layout and __init__.py exports work for an end user.
+      # pyutilz is not on PyPI, so pull it from git into the smoke venv.
+      - name: Install wheel + smoke import
+        run: |
+          python -m venv /tmp/smoke
+          /tmp/smoke/bin/pip install --upgrade pip
+          /tmp/smoke/bin/pip install "pyutilz[llm] @ git+https://github.com/fingoldo/pyutilz.git@4adc276947fcfc730cff796b25f72ab50aad9617"
+          /tmp/smoke/bin/pip install dist/*.whl
+          /tmp/smoke/bin/python -c "import llm_bench; print('llm_bench', llm_bench.__version__, 'at', llm_bench.__file__)"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: dist
+          path: dist/

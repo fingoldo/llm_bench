@@ -1,0 +1,233 @@
+# Pre-commit hooks for llm_bench.
+#
+# Install:
+#   pip install pre-commit && pre-commit install
+#
+# To skip in a hurry:
+#   git commit --no-verify
+#
+# A ``manual``-stage variant of the meta-tests is also defined for tight inner-loop work
+# (skip subprocess-isolation tests):
+#   pre-commit run --hook-stage=manual llm_bench-meta-tests-static-only
+
+repos:
+  # Secret-scanner -- catches accidental commits of LLM API keys (sk-or-..., sk-ant-..., xai-...).
+  # Runs on every staged change. Update the baseline with:
+  #   detect-secrets scan > .secrets.baseline
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: ['--baseline', '.secrets.baseline']
+        exclude: '\.secrets\.baseline$'
+
+  # Actionlint: lints .github/workflows/*.yml for syntax AND semantic bugs (undefined contexts,
+  # bad expressions, unknown runner labels, duplicate keys, shell-syntax errors in `run:` blocks
+  # via its bundled shellcheck integration). Mirrors mlframe's/pyutilz's setup.
+  - repo: https://github.com/Mateusz-Grzelinski/actionlint-py
+    rev: v1.7.12.24
+    hooks:
+      - id: actionlint
+
+  # Real-bug gate: the project's FULL configured select/ignore (pyproject.toml, extended from
+  # ../py-ci-shared/configs/ruff-base.toml), minus C901 (complexity, advisory-only). Closed to 0
+  # findings 2026-07-11 when the broader shared select was adopted (30 findings triaged: 7 C901 +
+  # 23 real UP035/RUF005/RUF059/RUF100/B007/PERF102/PERF401/E741/F401/UP017/UP041 fixes).
+  #
+  # CRITICAL: never use ``--select`` here. ``--select`` REPLACES the effective rule set instead of
+  # narrowing pyproject.toml's configured select, silently dropping the ``ignore`` list too and
+  # breaking RUF100's "is this noqa still needed" determination. ``--ignore`` only ADDS to the
+  # configured ignore list, so it is safe.
+  - repo: local
+    hooks:
+      - id: ruff-real-bugs
+        name: "ruff (real bugs block)"
+        entry: python -m ruff check --ignore C901
+        language: system
+        types: [python]
+        # pre-commit passes matching files as explicit CLI args, which BYPASSES ruff's own
+        # top-level `exclude` list in pyproject.toml (explicit paths override `exclude`; only
+        # `force-exclude = true`, which this repo does not set, would apply it to explicit args
+        # too). Mirror that exclude list here at the pre-commit level: `tests`, `examples`, and
+        # `benchmarks` (standalone perf-comparison scripts, added alongside examples/).
+        exclude: (^|/)(tests|examples|benchmarks)/
+        stages: [pre-commit]
+
+  - repo: local
+    hooks:
+      - id: llm_bench-meta-tests
+        name: "llm_bench meta-tests (api stability / cycles / encoding / hygiene)"
+        entry: pytest tests/test_meta/ --no-cov -p no:randomly -q -x
+        language: system
+        types: [python]
+        pass_filenames: false
+        always_run: false
+        stages: [pre-commit]
+
+      - id: llm_bench-meta-tests-static-only
+        name: "llm_bench meta-tests (static analysis only — fast subset)"
+        entry: pytest tests/test_meta/ --no-cov -p no:randomly -q -x -k "not subprocess"
+        language: system
+        types: [python]
+        pass_filenames: false
+        always_run: false
+        stages: [manual]
+
+  # Format + lint WARNINGS only -- ruff format --check + ruff check, never rewrites and never
+  # blocks (always exits 0). Auto-reformat is intentionally off (would churn large diffs that
+  # collide with concurrent work); run ``ruff format`` / ``ruff check --fix`` manually to apply.
+  # Wrapper script lives in the shared py_ci_shared package (fingoldo/py-ci-shared) --
+  # `pip install -e ".[dev]"` installs it.
+  - repo: local
+    hooks:
+      - id: format-lint-warn
+        name: "format + lint (WARN only — never rewrites or blocks)"
+        entry: python -m py_ci_shared.format_warn
+        language: system
+        types: [python]
+        verbose: true
+        stages: [pre-commit]
+
+  # Black: formatting pass with line-length=160 (project standard, see [tool.black] in
+  # pyproject.toml). MANUAL-stage only, same rationale as mlframe/pyutilz: raw/unfiltered black
+  # applies diff classes the project doesn't want auto-churned. Use
+  # `python -m py_ci_shared.black_filtered_apply --write <files>` for the sanctioned pass instead
+  # of `pre-commit run --hook-stage manual black`.
+  - repo: https://github.com/psf/black
+    rev: 25.1.0
+    hooks:
+      - id: black
+        language_version: python3
+        stages: [manual]
+
+  # MyPy: whole-project, BLOCKING. Unlike mlframe/pyutilz (which scope mypy to a narrow
+  # strict-mode beachhead over a large codebase), llm_bench is small enough (39 source files) that
+  # whole-tree gradual-typing mypy is cheap to run on every commit. Closed to 0 findings 2026-07-11
+  # (12 real errors fixed: implicit-Optional-narrowing, a redefined loop variable across two
+  # unpaired comprehensions, a NewType/str mismatch on ExperimentTag, and a Protocol method
+  # incorrectly declared `async def` for an async-generator implementation -- see
+  # src/llm_bench/storage/base.py's query_rows docstring for that last one). Covers `tests/` too
+  # since 2026-07-22 -- previously only src/llm_bench was checked, leaving a dead
+  # `[[tool.mypy.overrides]] module = "tests.*"` config that nothing exercised; tests/ measured 0
+  # findings under this exact config, so there's no reason not to actually enforce it (audit: 02-Low).
+  - repo: local
+    hooks:
+      - id: mypy-blocking
+        name: "mypy (blocking, whole src/llm_bench + tests tree)"
+        entry: python -m mypy src/llm_bench tests
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [pre-commit]
+
+  # Security-lint gate: bandit -ll (medium+ severity). Blocking -- closed to 0 findings 2026-07-11
+  # (13 B608 SQL-construction findings in storage/postgres.py, all `# nosec B608`'d individually:
+  # every value is passed as an asyncpg `$n` placeholder, the only f-string-interpolated part is
+  # the schema name, set once at construction from an operator config value, not per-request
+  # input -- see the class docstring for the full justification).
+  - repo: local
+    hooks:
+      - id: bandit-blocking
+        name: "bandit security scan (blocking)"
+        entry: python -m bandit -r src/llm_bench -ll
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [pre-commit]
+
+  # Dead-code gate: vulture --min-confidence 80. Blocking -- closed to 0 findings 2026-07-11 (one
+  # real finding: `__aexit__(self, *exc_info: Any)` renamed to `*_exc_info` since the dunder
+  # contract requires the parameter but this implementation never inspects it).
+  - repo: local
+    hooks:
+      - id: vulture-blocking
+        name: "vulture dead-code scan (blocking)"
+        entry: python -m vulture src/llm_bench --min-confidence 80
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [pre-commit]
+
+  # Docstring-coverage gate: see [tool.interrogate] in pyproject.toml -- fail-under=65 is
+  # llm_bench's own measured 2026-07-11 starting point (68.5%), rounded down to the nearest 5, not
+  # blindly 100 like mlframe/pyutilz (which were already there). Raise it as storage/{file,memory,
+  # postgres}.py (the current drag, 11-25% each) get documented; never lower it.
+  - repo: local
+    hooks:
+      - id: interrogate-blocking
+        name: "interrogate docstring coverage (blocking, measured floor)"
+        entry: python -m interrogate src/llm_bench
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [pre-commit]
+
+  # Dependency-drift gate: deptry (unused/missing/transitive). Blocking -- see [tool.deptry] for
+  # the per_rule_ignores this relies on (DEP003 self-import false positive under an editable
+  # install; DEP002 version-floor/dev-tool/postgres-extra false positives). Closed to 0 findings
+  # 2026-07-11 after also declaring `orjson` (storage/file.py, genuinely used directly) as a real
+  # dependency instead of ignoring the DEP001. Assumes the local dev env has [dev,postgres]
+  # extras installed (same assumption CI makes via its explicit install step).
+  - repo: local
+    hooks:
+      - id: deptry-blocking
+        name: "deptry dependency check (blocking)"
+        entry: python -m deptry .
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+  # Prose-typo gate: codespell. Blocking -- config/ignore-words-list comes from [tool.codespell]
+  # in pyproject.toml, same as CI. Closed to 0 findings 2026-07-11 ("unparseable" is a valid
+  # English spelling variant, same confirmed false positive mlframe's config already carries).
+  - repo: local
+    hooks:
+      - id: codespell-blocking
+        name: "codespell prose typo check (blocking)"
+        entry: python -m codespell_lib --toml pyproject.toml src/llm_bench
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+  # Workflow-YAML style gate: yamllint. Blocking -- see .yamllint for the line-length /
+  # new-lines / truthy relaxations. Closed to 0 findings 2026-07-11.
+  - repo: local
+    hooks:
+      - id: yamllint-blocking
+        name: "yamllint workflow files (blocking)"
+        entry: python -m yamllint .github/workflows .pre-commit-config.yaml
+        language: system
+        pass_filenames: false
+        files: '^(\.github/workflows/.*\.ya?ml|\.pre-commit-config\.yaml)$'
+        stages: [pre-commit]
+
+  # Workflow-security gate: zizmor (unpinned actions, template-injection, excessive permissions,
+  # credential persistence in .github/workflows/*.yml). Blocking -- triaged to 0 findings
+  # 2026-07-11: every action reference SHA-pinned, `persist-credentials: false` on every checkout,
+  # `enable-cache: false` on the release build's setup-uv (cache-poisoning: a release-triggered
+  # workflow shouldn't reuse a cache another run could have poisoned), and an explicit
+  # `permissions: contents: read` added at the ci.yml workflow level (it previously had none, so
+  # every job ran with the broad default token).
+  - repo: local
+    hooks:
+      - id: zizmor-blocking
+        name: "zizmor workflow security scan (blocking)"
+        entry: uvx zizmor .
+        language: system
+        pass_filenames: false
+        files: '^\.github/workflows/.*\.ya?ml$'
+        stages: [pre-commit]
+
+  # Advisory-taste warn-only gate: unrestricted-select ruff (surfaces everything the blocking
+  # gate's --ignore C901 hides) + mccabe complexity (C90) + pip-audit (dependency CVE feed).
+  # Never blocks -- design taste / a feed whose fix isn't always on your own timeline, not a
+  # correctness bug. Same pattern as mlframe's/pyutilz's hook.
+  - repo: local
+    hooks:
+      - id: lint-advisory-warn
+        name: "ruff (full-select) + mccabe complexity + pip-audit (advisory, warn-only)"
+        entry: python -m py_ci_shared.advisory_warn --src-path src/llm_bench
+        language: system
+        types: [python]
+        verbose: true
+        stages: [pre-commit]

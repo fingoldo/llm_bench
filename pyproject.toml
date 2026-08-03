@@ -1,0 +1,261 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llm-bench"
+version = "0.1.0"
+description = "Pluggable LLM benchmarking framework: cost-rank discovery + Sequential Halving + storage backends (Postgres / file / in-memory)."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{name = "Anatoly Alexeev", email = "fingoldo@gmail.com"}]
+keywords = ["llm", "benchmark", "openrouter", "evaluation", "halving"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Operating System :: OS Independent",
+]
+
+# Hard deps. ``pyutilz>=1.1`` provides LLMProvider, OpenRouterProvider,
+# list_openrouter_models (+ today's two-stage health pre-flight),
+# unified ``reasoning`` field, ``supports_json_mode()``, and the
+# Phase-4 OR extras (cache_discount, is_byok, web_search).
+dependencies = [
+    # Pinned >= 1.0; in practice we rely on the post-1.0.0 commits
+    # adding Phase-4 OR fields, supports_json_mode(), unified reasoning,
+    # and two-stage list_openrouter_models. Tighten to >=1.1 once
+    # those land in a tagged pyutilz release.
+    "pyutilz>=1.0",
+    "httpx>=0.25",
+    "tenacity>=8.0",
+    "pydantic>=2.0",
+    "aiosqlite>=0.19",   # FileStorage resume-cache index
+    "orjson>=3.9",       # FileStorage JSONL/JSON serialization (storage/file.py) -- was an
+                         # undeclared direct import until CI/deptry caught it
+]
+
+[project.optional-dependencies]
+postgres = [
+    "asyncpg>=0.28",
+]
+dev = [
+    "ruff>=0.1",
+    "black>=23.0",
+    "mypy>=1.0",
+    "pytest>=7.0",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=4.0",
+    "pytest-timeout>=2.2",
+    "hypothesis>=6.0",
+    "pre-commit>=3.0",
+    "detect-secrets>=1.5",
+    "py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@a49421c79f4262326295ed14ed3859e9b85fdc5b",
+    # The 6 hygiene tools .pre-commit-config.yaml's *-blocking hooks invoke via
+    # `python -m <tool>` (zizmor excepted -- it runs standalone via `uvx zizmor .`,
+    # needing no persistent install). Declared here so both the local pre-commit
+    # environment AND CI's "hygiene gates" job (.github/workflows/ci.yml, which
+    # installs this repo via `.[dev,postgres]`) actually have them -- previously
+    # CI's hygiene job assumed they'd already be present and failed outright with
+    # "No module named vulture" on a fresh checkout (confirmed in CI 2026-07-23).
+    "vulture>=2.10",
+    "interrogate>=1.5",
+    "deptry>=0.16",
+    "codespell>=2.2",
+    "yamllint>=1.35",
+]
+
+[project.urls]
+Homepage = "https://github.com/fingoldo/llm_bench"
+Issues = "https://github.com/fingoldo/llm_bench/issues"
+
+[project.scripts]
+llm-bench = "llm_bench.cli.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["llm_bench*"]
+
+# ── pytest ──────────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short --strict-markers -ra -p no:randomly"
+asyncio_mode = "auto"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests (require external services)",
+    "live: marks tests requiring live provider API keys (deselect with '-m \"not live\"'; default is to skip via missing-key fixtures)",
+    "postgres: marks tests requiring a Postgres test DB at LLM_BENCH_TEST_DB_URL",
+]
+
+# ── coverage ────────────────────────────────────────────────────────
+[tool.coverage.run]
+source = ["src/llm_bench"]
+omit = [
+    "tests/*",
+    "*/__pycache__/*",
+    "*/site-packages/*",
+    ".venv/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "def __str__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "except:",
+    "if 0:",
+    "if False:",
+]
+precision = 2
+show_missing = true
+
+# ── black ───────────────────────────────────────────────────────────
+[tool.black]
+line-length = 160
+target-version = ['py311', 'py312', 'py313', 'py314']
+exclude = '''
+/(
+    \.git
+  | \.venv
+  | \.pytest_cache
+  | build
+  | dist
+  | __pycache__
+)/
+'''
+
+# ── ruff ────────────────────────────────────────────────────────────
+# Base select/ignore (E,W,F,I,N,UP,B,DTZ,A,T20,RUF,G,ISC,PERF,C90 + the generic ignores) is pulled
+# in from $PY_CI_SHARED_DIR/configs/ruff-base.toml via `extend` -- a real merge, not copy-paste;
+# ruff expands env vars in `extend` paths (docs.astral.sh/ruff/settings), so PY_CI_SHARED_DIR just
+# needs to point at ANY real py-ci-shared checkout, not a sibling directory specifically. See that
+# repo's README "Using the shared ruff config" section for the full rationale.
+# Adopting the broader select surfaced 30 findings 2026-07-11 (7 C901 complexity + 23 real:
+# UP035/RUF005/RUF059/RUF100/B007/PERF102/PERF401/E741/F401), all fixed by hand in the same pass
+# (see src/llm_bench/{core/types,cost/estimator,cost/filter,halving/{driver,pruner},
+# ranking/{ranker,per_stage_winners},runner/{benchmark,round_runner},storage/{base,file,memory,
+# postgres}}.py) -- small enough to close outright rather than keep the narrower select.
+[tool.ruff]
+extend = "$PY_CI_SHARED_DIR/configs/ruff-base.toml"
+target-version = "py311"
+# examples/ are standalone runnable scripts against a VocabApp-specific job_pool/stages layout
+# outside this package -- top-level imports after sys.path.insert() (E402, with now-unused noqa
+# once the shared select adds RUF100) and end-user-facing print() (T201) are both intentional
+# there, not a lint bug in the library itself. Same exclusion rationale as [tool.deptry] above.
+# benchmarks/ are standalone before/after perf-comparison scripts, same rationale: their whole
+# job is printing a results table to stdout, not returning a value to a library caller.
+exclude = ["tests", "examples", "benchmarks", ".git", "__pycache__", "build", "dist"]
+
+# Measured 2026-07-11 when C90 was newly added via the shared base (llm_bench had never selected
+# it before): default threshold=10 flags 7 functions, 3 of them genuine outliers (20-28). 15 keeps
+# exactly those 3 (promote=21, mad_bootstrap_prune=28, compute_ranking=20) without flagging the
+# routine 11-15 dispatch functions. This repo's own measured number, not copied from mlframe/pyutilz.
+[tool.ruff.lint.mccabe]
+max-complexity = 15
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]  # unused imports OK in __init__
+# CLI entry point -- stdout output is the product, not a lint bug. Same
+# rationale as the examples/ T201 exclusion above, just scoped to one
+# file since cli/ otherwise lives under the library's normal lint rules.
+"src/llm_bench/cli/main.py" = ["T201"]
+
+# ── mypy ────────────────────────────────────────────────────────────
+# tests/ is INCLUDED in the whole-tree mypy gate below (pre-commit's
+# mypy-blocking hook and .github/workflows/mypy-full.yml both check
+# `src/llm_bench tests`) -- measured 2026-07-22: tests/ is already 0
+# findings under this exact config, so there's no reason to carry a
+# per-module `ignore_errors = true` override that was previously dead
+# weight anyway (nothing invoked mypy against tests/ at all, so the
+# override neither helped nor hurt -- audit: 02-Low).
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false  # gradual typing
+ignore_missing_imports = true
+check_untyped_defs = true
+
+# ── interrogate ─────────────────────────────────────────────────────
+# Measured 2026-07-11: 68.5% (126/184) docstring coverage. storage/{file,memory,postgres}.py drag
+# the average down (11-25%, mostly undocumented private helpers on the concrete backend classes);
+# everything else is 75-100%. --fail-under is the measured number rounded DOWN to the nearest 5
+# (not blindly 100 like mlframe/pyutilz, which were already at/near 100% before their gates went
+# blocking) -- this is llm_bench's own real starting point, not aspirational. Raise it as the
+# storage backends get documented; never lower it.
+[tool.interrogate]
+ignore-init-method = true
+ignore-init-module = true
+ignore-magic = true
+ignore-private = true
+exclude = ["tests", "build", "dist"]
+fail-under = 65
+verbose = 1
+
+# ── deptry ──────────────────────────────────────────────────────────
+# DEP003 'llm_bench' (99 of the 2026-07-11 findings): every internal `from llm_bench.xxx import
+# ...` absolute import within the package's OWN source tree is misclassified as "a transitive
+# dependency imported directly" -- deptry's self-import detection doesn't special-case a package
+# importing its own submodules under an editable (`pip install -e`) install the way it does for a
+# normal site-packages install. Tried [tool.deptry.package_module_name_map] ("llm-bench" ->
+# "llm_bench") first since that's the right fix for a genuine distribution/import name mismatch
+# (mirrors pyutilz's psycopg2-binary/beautifulsoup4/etc. map) -- verified it does NOT change this
+# finding at all, confirming the root cause is self-import detection, not name-mapping. Ignored
+# per_rule_ignores instead, same class of "verified environment-specific false positive, not a
+# real dependency problem" as mlframe's own DEP001/DEP003 entries.
+# DEP001 'orjson' (storage/file.py, genuinely used directly): real finding, fixed by declaring it
+# in [project.dependencies] rather than ignored here -- see that list's 2026-07-11 comment.
+[tool.deptry]
+# examples/ are standalone runnable scripts against a VocabApp-specific job_pool/stages module
+# layout that isn't part of this package's own dependency surface (DEP001 false positives on
+# 'job_pool'/'stages' -- not third-party packages at all, just names deptry can't resolve outside
+# that example's own local context). benchmarks/ are standalone perf-comparison scripts, same
+# reasoning: they import only llm_bench itself plus stdlib, but live outside src/ like examples/.
+# "pyutilz": CI clones pyutilz as a SUBDIRECTORY of this checkout to install it from a local path
+# (.github/workflows/ci.yml's "Clone & install pyutilz" step) -- deptry's own exclude matching is
+# anchored (a bare "build" only excludes a literal top-level build/, not pyutilz/build/), so its
+# nested source AND its own build/ staging dir both need an explicit exclude; without it deptry
+# reports pyutilz's entire dependency surface (numpy/pandas/PIL/boto3/...) as if it were this
+# repo's own problem, confirmed in CI 2026-07-23.
+exclude = ["tests", "examples", "benchmarks", ".venv", "build", "dist", "pyutilz"]
+
+[tool.deptry.per_rule_ignores]
+DEP003 = ["llm_bench"]
+# DEP002 (declared but not directly imported):
+#   httpx/tenacity/pydantic: version-floor pins matching pyutilz's OWN declared deps for the same
+#   packages (pyutilz's LLMProvider/OpenRouterProvider use them internally) -- llm_bench never
+#   imports them directly, but pins its own floor so a caller installing llm_bench alone still
+#   gets a version pyutilz's LLM code is verified against, rather than whatever pip resolves.
+#   ruff/black/mypy/pytest*/hypothesis/pre-commit/detect-secrets/py-ci-shared/vulture/interrogate/
+#   deptry/codespell/yamllint: dev-tool CLI packages, invoked as commands or via -m, never
+#   `import`-ed by name -- deptry's static-usage scan can never see them as "used" no matter how
+#   the code changes (same as mlframe/pyutilz). The 5 hygiene tools were added to [dev] 2026-07-23
+#   so CI's "hygiene gates" job (which installs via .[dev,postgres]) actually has them.
+DEP002 = [
+    "httpx", "tenacity", "pydantic",
+    "ruff", "black", "mypy", "pytest", "pytest-asyncio", "pytest-cov", "pytest-timeout", "hypothesis",
+    "pre-commit", "detect-secrets", "py-ci-shared",
+    "vulture", "interrogate", "deptry", "codespell", "yamllint",
+]
+
+# ── codespell ───────────────────────────────────────────────────────
+# "unparseable" (cost/openrouter.py docstring): valid English spelling variant of "unparsable" --
+# same confirmed false positive mlframe's codespell config already carries for the identical word.
+[tool.codespell]
+ignore-words-list = "unparseable"
