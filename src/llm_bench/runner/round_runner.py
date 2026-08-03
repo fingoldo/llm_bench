@@ -699,7 +699,13 @@ async def _run_pipeline(
         out_tok = telemetry.get("output_tokens") or 0
         rsn_tok = telemetry.get("reasoning_tokens") or 0
         cost_usd = telemetry.get("cost_usd") or 0.0
-        eff_cost = telemetry.get("effective_cost_usd") or cost_usd
+        # `or cost_usd` would replace a legitimate $0 effective cost (a
+        # fully cache-discounted call) with the pre-discount cost_usd,
+        # inflating reported spend for exactly the calls that should
+        # report the least (default-via-or trap: 0.0 is a valid
+        # "fully discounted" value here, not "missing").
+        raw_eff_cost = telemetry.get("effective_cost_usd")
+        eff_cost = cost_usd if raw_eff_cost is None else raw_eff_cost
         parsed = _parse_safely(stage, task_unit, response_text, in_tok, out_tok) if response_text else None
         ctx.outputs[stage.id] = parsed
         ctx.parent_prompt_hashes[stage.id] = comp_h

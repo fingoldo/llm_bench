@@ -236,8 +236,13 @@ class Benchmark:
             await self.initialize()
 
         exp_tag = ExperimentTag(str(tag))
-        rounds = rounds or list(range(1, len(self.halving_schedule.round_sizes) + 1))
-        units = units or await self._sample_units()
+        # `is None` (not `or`): a caller passing `rounds=[]` / `units=[]`
+        # deliberately means "run nothing" and must NOT silently fall
+        # back to "run every round" / "sample a fresh pool" -- that
+        # would burn the full per-stage budget on a call meant to be a
+        # no-op (default-via-or trap on a public API surface).
+        rounds = list(range(1, len(self.halving_schedule.round_sizes) + 1)) if rounds is None else rounds
+        units = await self._sample_units() if units is None else units
         halving = Halving(schedule=self.halving_schedule)
 
         report = PhaseReport(experiment_tag=str(exp_tag))

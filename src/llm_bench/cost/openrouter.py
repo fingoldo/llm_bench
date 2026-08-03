@@ -79,7 +79,12 @@ def _pick_best_upstream(endpoints: list[dict]) -> dict:
         else:
             status_rank = 1  # missing => treat as degraded
         uptime = -(ep.get("uptime_30m") or ep.get("uptime_5m") or 0.0)
-        latency = ep.get("latency_p50_ms") or float("inf")
+        raw_latency = ep.get("latency_p50_ms")
+        # `or float("inf")` would treat a genuinely-fast (or reported as
+        # exactly 0ms) endpoint as if it had NO latency data at all,
+        # sorting the best endpoint last instead of first (default-via-or
+        # trap: 0 is a legitimate falsy value here, not "missing").
+        latency = float("inf") if raw_latency is None else raw_latency
         throughput = -(ep.get("throughput_p50_tps") or 0.0)
         return (status_rank, uptime, latency, throughput)
 
