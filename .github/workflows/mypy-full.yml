@@ -40,5 +40,5 @@ jobs:
       advisory: false
       install-command: |
         git clone https://github.com/fingoldo/pyutilz.git
-        git -C pyutilz checkout 4adc276947fcfc730cff796b25f72ab50aad9617
+        git -C pyutilz checkout 8ffd7e6cdcfd104e428253bf67ae173798943cde
         uv pip install --system "./pyutilz[llm]" -e ".[dev,postgres]"

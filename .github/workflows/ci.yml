@@ -70,7 +70,7 @@ jobs:
         # llm_bench's own [dev,postgres] extras so the resolver sees the whole graph at once.
         run: |
           git clone https://github.com/fingoldo/pyutilz.git
-          git -C pyutilz checkout 4adc276947fcfc730cff796b25f72ab50aad9617
+          git -C pyutilz checkout 8ffd7e6cdcfd104e428253bf67ae173798943cde
           uv pip install --system "./pyutilz[llm]" -e ".[dev,postgres]"
 
       - name: Show installed versions
@@ -188,7 +188,7 @@ jobs:
       - name: Clone & install pyutilz + llm_bench
         run: |
           git clone https://github.com/fingoldo/pyutilz.git
-          git -C pyutilz checkout 4adc276947fcfc730cff796b25f72ab50aad9617
+          git -C pyutilz checkout 8ffd7e6cdcfd104e428253bf67ae173798943cde
           uv pip install --system "./pyutilz[llm]" -e ".[dev,postgres]"
 
       - name: vulture dead-code scan
@@ -231,7 +231,7 @@ jobs:
       - name: Clone & install pyutilz + llm_bench
         run: |
           git clone https://github.com/fingoldo/pyutilz.git
-          git -C pyutilz checkout 4adc276947fcfc730cff796b25f72ab50aad9617
+          git -C pyutilz checkout 8ffd7e6cdcfd104e428253bf67ae173798943cde
           uv pip install --system "./pyutilz[llm]" -e ".[dev]"
 
       - name: Run meta-tests (alias / API / optional-deps / side effects)
@@ -268,7 +268,7 @@ jobs:
         run: |
           python -m venv /tmp/smoke
           /tmp/smoke/bin/pip install --upgrade pip
-          /tmp/smoke/bin/pip install "pyutilz[llm] @ git+https://github.com/fingoldo/pyutilz.git@4adc276947fcfc730cff796b25f72ab50aad9617"
+          /tmp/smoke/bin/pip install "pyutilz[llm] @ git+https://github.com/fingoldo/pyutilz.git@8ffd7e6cdcfd104e428253bf67ae173798943cde"
           /tmp/smoke/bin/pip install dist/*.whl
           /tmp/smoke/bin/python -c "import llm_bench; print('llm_bench', llm_bench.__version__, 'at', llm_bench.__file__)"
 

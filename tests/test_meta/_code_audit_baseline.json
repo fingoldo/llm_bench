@@ -11,6 +11,5 @@
   "default_via_or::storage/postgres.py:389",
   "duplicate_credential_regex::core/redaction.py:32",
   "duplicate_function_body_subset::storage/file.py:149",
-  "duplicate_function_body_subset::storage/memory.py:145",
   "getattr_unknown_attribute::cli/main.py:132"
 ]
