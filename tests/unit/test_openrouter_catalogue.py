@@ -239,3 +239,73 @@ class TestListModelsFetchFailure:
         cat = OpenRouterCatalogue()
         with pytest.raises(RuntimeError):
             cat.list_models()
+
+
+class TestListModelsHappyPath:
+    """The success path (list_openrouter_models returns real rows) previously had zero
+    coverage -- both `max_output_per_1m_prefilter` forwarding and the per-row None-filter
+    were untested."""
+
+    def _row(self, model_id: str) -> dict:
+        return {
+            "id": model_id,
+            "pricing": {"prompt": "0.000001", "completion": "0.000002"},
+            "context_length": 128000,
+            "top_provider": {"context_length": 128000, "max_completion_tokens": 8000, "is_moderated": False},
+            "supported_parameters": [],
+            "health": {
+                "best_uptime_30m": 99.5,
+                "best_latency_p50_ms": 200,
+                "best_throughput_p50_tps": 40,
+                "endpoints": [{"status": "live", "provider_name": "vendor", "uptime_30m": 0.995, "max_completion_tokens": 8000}],
+            },
+        }
+
+    def test_max_output_per_1m_prefilter_forwarded_when_set(self, monkeypatch):
+        import pyutilz.llm
+
+        captured_kwargs: dict = {}
+
+        def _fake_fetch(**kwargs):
+            captured_kwargs.update(kwargs)
+            return [self._row("vendor/model-a")]
+
+        monkeypatch.setattr(pyutilz.llm, "list_openrouter_models", _fake_fetch)
+
+        cat = OpenRouterCatalogue(max_output_per_1m_prefilter=5.0)
+        entries = cat.list_models()
+
+        assert captured_kwargs["max_output_per_1m"] == 5.0
+        assert len(entries) == 1
+        assert entries[0].model_id == "vendor/model-a"
+
+    def test_max_output_per_1m_not_forwarded_when_unset(self, monkeypatch):
+        import pyutilz.llm
+
+        captured_kwargs: dict = {}
+
+        def _fake_fetch(**kwargs):
+            captured_kwargs.update(kwargs)
+            return [self._row("vendor/model-a")]
+
+        monkeypatch.setattr(pyutilz.llm, "list_openrouter_models", _fake_fetch)
+
+        cat = OpenRouterCatalogue()
+        cat.list_models()
+
+        assert "max_output_per_1m" not in captured_kwargs
+
+    def test_rows_rejected_by_entry_from_or_row_are_dropped(self, monkeypatch):
+        import pyutilz.llm
+
+        def _fake_fetch(**kwargs):
+            # One valid row, one rejected (":free" tag) row -- the invalid one must be
+            # silently filtered, not included as None or crash the list comprehension.
+            return [self._row("vendor/model-a"), self._row("vendor/model-b:free")]
+
+        monkeypatch.setattr(pyutilz.llm, "list_openrouter_models", _fake_fetch)
+
+        cat = OpenRouterCatalogue()
+        entries = cat.list_models()
+
+        assert [e.model_id for e in entries] == ["vendor/model-a"]
