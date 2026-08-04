@@ -251,11 +251,14 @@ DEP003 = ["llm_bench"]
 #   `import`-ed by name -- deptry's static-usage scan can never see them as "used" no matter how
 #   the code changes (same as mlframe/pyutilz). The 5 hygiene tools were added to [dev] 2026-07-23
 #   so CI's "hygiene gates" job (which installs via .[dev,postgres]) actually has them.
+#   pytest-xdist: only ever invoked via test_branch_coverage_ratchet.py's subprocess pytest
+#   command line (`-n auto`), never `import pytest_xdist` -- same invisible-to-static-usage-scan
+#   class as the rest of this list (2026-08-05, added alongside pytest-xdist itself).
 DEP002 = [
     "httpx", "tenacity", "pydantic",
     "ruff", "black", "mypy", "pytest", "pytest-asyncio", "pytest-cov", "pytest-timeout", "hypothesis",
     "pre-commit", "detect-secrets", "py-ci-shared",
-    "vulture", "interrogate", "deptry", "codespell", "yamllint",
+    "vulture", "interrogate", "deptry", "codespell", "yamllint", "pytest-xdist",
 ]
 
 # ── codespell ───────────────────────────────────────────────────────
