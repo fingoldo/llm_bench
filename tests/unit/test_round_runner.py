@@ -30,7 +30,8 @@ from llm_bench import (
 )
 from llm_bench.runner.budget import BudgetGate, StageBudget
 from llm_bench.runner.resume import ResumeCache
-from llm_bench.runner.round_runner import RoundConfig, run_round
+from llm_bench.runner.round_runner import RoundConfig, _build_prompt, _parse_safely, run_round
+from llm_bench.stage.base import StageContext
 
 TAG = ExperimentTag("rr_test")
 
@@ -729,6 +730,25 @@ class TestBudgetGateSkip:
         rows = [r async for r in storage.query_rows(experiment_tag=TAG)]
         assert rows == []
 
+    async def test_headroom_cap_lets_call_through_and_records_cost(self):
+        """A non-zero cap with real headroom must let the call proceed AND
+        reconcile the reservation via ``budget_gate.record_cost`` (as
+        opposed to the zero-cap case above, which skips before ever
+        reaching that call)."""
+        graph = _graph_single_stage()
+        storage = await _init(InMemoryStorage())
+        call_log: list[str] = []
+        gate = BudgetGate(budgets_by_op={"enrich": StageBudget(cap_usd=100.0)})
+        cfg = _cfg(
+            candidates=["m1"], task_units=_units(1), stages=graph, storage=storage,
+            budget_gate=gate, provider_factory=lambda m: _RecordingProvider(model=m, call_log=call_log),
+        )
+        await run_round(cfg)
+        assert call_log == ["m1"]
+        # `record_cost` releases the reservation `check()` made -- the
+        # gate's internal ledger must show real spend, not stay at 0.
+        assert gate._spent_by_key[(str(TAG), "enrich")] > 0.0
+
 
 # ──────────────────────────────────────────────────────────────────────
 # provider_label
@@ -958,3 +978,52 @@ class TestErrorMessageRedaction:
         assert rows[0].error_message is not None
         assert "sk-liveSECRETTOKEN1234567890" not in rows[0].error_message
         assert "Bearer ***" in rows[0].error_message
+
+
+# ──────────────────────────────────────────────────────────────────────
+# _build_prompt / _parse_safely direct exercises (branch-coverage ratchet)
+# ──────────────────────────────────────────────────────────────────────
+
+class TestBuildPromptDirect:
+    async def test_async_prompt_builder_is_awaited(self):
+        """A PromptBuilder MAY be a coroutine function -- ``_build_prompt``
+        awaits it when ``asyncio.iscoroutine(result)`` is True."""
+
+        async def async_pb(*, task_unit, ctx, lang=None):
+            return (f"sys {task_unit.id}", "user")
+
+        stage = Stage(id="root", op="enrich", prompt_builder=async_pb, parser=_parser)
+        ctx = StageContext(task_unit=TaskUnit(id="u0", stratum="v"))
+        sys_p, usr_p = await _build_prompt(stage, ctx.task_unit, ctx)
+        assert sys_p == "sys u0"
+        assert usr_p == "user"
+
+    async def test_malformed_prompt_builder_return_raises(self):
+        """A PromptBuilder returning anything other than a 2-tuple is a
+        contract violation and must raise, not silently misbehave."""
+
+        def bad_pb(*, task_unit, ctx, lang=None):
+            return "not a tuple"
+
+        stage = Stage(id="root", op="enrich", prompt_builder=bad_pb, parser=_parser)
+        ctx = StageContext(task_unit=TaskUnit(id="u0", stratum="v"))
+        with pytest.raises(ValueError, match="must return"):
+            await _build_prompt(stage, ctx.task_unit, ctx)
+
+
+class TestParseSafelyDirect:
+    def test_none_response_text_short_circuits_to_none(self):
+        """A None response_text (e.g. a winner-substrate row whose own
+        call failed) must short-circuit without ever calling the
+        stage's parser -- there is nothing to parse."""
+        calls: list[str] = []
+
+        def spy_parser(*, task_unit, response_text, input_tokens, output_tokens):
+            calls.append("called")
+            return {"raw": response_text}
+
+        stage = Stage(id="root", op="enrich", prompt_builder=_pb, parser=spy_parser)
+        task_unit = TaskUnit(id="u0", stratum="v")
+        result = _parse_safely(stage, task_unit, None, 0, 0)
+        assert result is None
+        assert calls == []
