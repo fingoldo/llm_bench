@@ -951,6 +951,31 @@ class TestInfraFailureSurfacing:
         assert call_log == ["m1"]
         assert any("infrastructure failure" in note for note in result.notes)
 
+    async def test_storage_write_failure_after_a_failed_provider_call_still_surfaces(self):
+        """The persist-failure log line's own status wording is a ternary
+        pair (``"succeeded"/"failed"`` on error_class, ``"spent
+        money"/"cost nothing"`` on money_was_spent) -- the test above only
+        ever exercises the SUCCESSFUL-call arm of both (a paid call that
+        then fails to persist). This pairs it with the FAILED-call arm: a
+        provider call that itself raises (error_class set, nothing spent)
+        which THEN also fails to persist."""
+
+        class _FlakyStorage(InMemoryStorage):
+            async def record_call(self, row: RunRow) -> str:
+                raise ConnectionError("storage backend unreachable")
+
+        storage = _FlakyStorage()
+        await storage.initialize()
+        graph = _graph_single_stage()
+        call_log: list[str] = []
+        cfg = _cfg(
+            candidates=["m1"], task_units=_units(1), stages=graph, storage=storage,
+            provider_factory=lambda m: _AlwaysFailProvider(model=m, call_log=call_log),
+        )
+        result = await run_round(cfg)
+        assert call_log == ["m1"]  # the provider call was genuinely attempted
+        assert any("infrastructure failure" in note for note in result.notes)
+
 
 # ──────────────────────────────────────────────────────────────────────
 # error_message secret redaction (audit: security 07-Low)
