@@ -126,7 +126,7 @@ class Benchmark:
         *,
         prompt: str = "Reply with one word.",
         system: str = "You are a benchmark preflight ping.",
-        max_tokens: int = 5,
+        max_tokens: int = 1024,
         timeout_sec: float = 30.0,
         concurrency: int = 8,
     ) -> dict[str, PreflightResult]:
@@ -146,18 +146,40 @@ class Benchmark:
         ``[m for m, r in results.items() if r.ok]`` and passes the survivors
         as the ``candidates`` list to ``run_phase``.
 
-        Cost: 1 small call per candidate. With max_tokens=5 and a one-line
-        prompt, ~$0.001 per model on cheap routes; ~$0.005 on expensive.
+        Cost: 1 small call per candidate, ~$0.001 per model on cheap routes.
+
+        ``max_tokens`` is a CEILING, not a target, and raising it costs nothing
+        on a one-line prompt: a non-reasoning model answers in two tokens
+        whatever the cap. The old default of 5 was chosen as a thrift measure
+        and bought nothing, while guaranteeing that any reasoning model - whose
+        thinking tokens are billed against the same completion budget - was cut
+        off before its first visible character and reported as dead. Measured on
+        a real 8-model run, that is precisely what happened. A truncated ping is
+        now also treated as ALIVE below, since a route that answered at all is a
+        route that works.
         """
-        if self.provider_factory is None:
-            raise ValueError("preflight() requires provider_factory to be set on the Benchmark")
+        # Same default as `_call_llm`'s, rather than refusing: a Benchmark that runs perfectly well without
+        # an explicit `provider_factory` (the documented default path) could not use `preflight=True` at
+        # all, and the failure landed as a ValueError AFTER `run_phase` had already been entered - so the
+        # one flag whose whole purpose is to fail cheap instead of burning budget was itself the thing that
+        # failed, and only for consumers who had done nothing wrong.
+        def _default_factory(model: str) -> Any:
+            from pyutilz.llm import get_llm_provider
+
+            return get_llm_provider(self.provider_label, model=model)
+
+        # `is None`, not `or`: a consumer's factory is not required to be truthy, and silently replacing a
+        # falsy-but-real one with the default would ping a different backend than the round will actually
+        # use - the same default-via-or trap `run_phase` already documents for `rounds`/`units`.
+        factory = _default_factory if self.provider_factory is None else self.provider_factory
+
         sem = asyncio.Semaphore(concurrency)
 
         async def _one(model: str) -> PreflightResult:
             async with sem:
                 t0 = time.monotonic()
                 try:
-                    provider = self.provider_factory(model)
+                    provider = factory(model)
                 except Exception as e:
                     return PreflightResult(
                         model=model, ok=False,
@@ -183,9 +205,22 @@ class Benchmark:
                     )
                 except Exception as e:
                     msg = str(e)
+                    error_class = classify_provider_error(type(e).__name__, msg)
+                    if error_class == "LLMTruncationError" or "truncat" in msg.lower():
+                        # A truncated ping is PROOF the route is alive: the request was accepted, routed and
+                        # answered, and only the output allowance ran out. Preflight exists to drop models
+                        # that cannot be called at all, so treating this as death drops exactly the healthy
+                        # reasoning models whose thinking tokens are billed against the completion budget.
+                        # Measured: an 8-model run marked a reasoning model dead on this alone.
+                        return PreflightResult(
+                            model=model, ok=True,
+                            error_class=error_class,
+                            error_message=f"answered but truncated at max_tokens={max_tokens}; route is alive - {msg[:150]}",
+                            latency_sec=time.monotonic() - t0,
+                        )
                     return PreflightResult(
                         model=model, ok=False,
-                        error_class=classify_provider_error(type(e).__name__, msg),
+                        error_class=error_class,
                         error_message=msg[:200],
                         latency_sec=time.monotonic() - t0,
                     )

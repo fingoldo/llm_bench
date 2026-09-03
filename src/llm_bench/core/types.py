@@ -113,6 +113,33 @@ class Stage:
     """Soft per-call cost projection used by the budget gate. The gate
     checks ``stage_total_spent + budget_per_call > stage_cap`` before
     each call; over-cap triggers SKIP, not crash."""
+    json_schema: dict[str, Any] | None = None
+    """Strict structured-output schema handed to the provider for this
+    stage's calls (``provider.generate(json_schema=...)``, honoured by
+    every provider that supports ``response_format=json_schema``).
+
+    Why this belongs on ``Stage`` rather than in a consumer's provider
+    wrapper: a benchmark exists to predict how a model will behave in
+    PRODUCTION, and a consumer whose production path constrains the
+    model with a strict schema but whose benchmark does not is measuring
+    a different system. The gap is not cosmetic — a strict schema is one
+    of the two standard defences against invented enum values (the other
+    being a deterministic normaliser), so scoring free-form output can
+    rank a model that would never have been allowed to emit that output
+    at all.
+
+    ``None`` (the default) leaves the call unconstrained, which is the
+    prior behaviour for every existing consumer."""
+    generate_kwargs: dict[str, Any] = field(default_factory=dict)
+    """Extra keyword arguments forwarded verbatim to
+    ``provider.generate`` for this stage (``temperature``,
+    ``max_tokens``, provider-specific knobs).
+
+    Forwarded as-is and never merged with framework defaults: a
+    benchmark that silently rewrote a consumer's sampling parameters
+    would measure something the consumer cannot reproduce. Keys that
+    collide with what the runner sets itself are the consumer's own
+    choice and win."""
 
 
 @dataclass

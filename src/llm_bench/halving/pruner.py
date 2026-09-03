@@ -88,12 +88,14 @@ def mad_bootstrap_prune(
             if len(syn_scores) < 2:
                 variance_penalty[m] = 0.0
                 continue
-            try:
-                m_mean = statistics.fmean(syn_scores)
-                m_sd = statistics.pstdev(syn_scores)
-            except statistics.StatisticsError:
-                variance_penalty[m] = 0.0
-                continue
+            # No try/except here. `fmean` and `pstdev` raise `StatisticsError` only on EMPTY data, and the
+            # `len(syn_scores) < 2` guard above has already returned for that. The handler that used to sit
+            # here set `variance_penalty[m] = 0.0`, which is the permissive direction: a model whose variance
+            # could not be measured went unpenalised, so the check would switch itself off in exactly the
+            # conditions that tripped it. If either call ever does raise, the guard above is broken and that
+            # is worth hearing about rather than absorbing.
+            m_mean = statistics.fmean(syn_scores)
+            m_sd = statistics.pstdev(syn_scores)
             denom = abs(m_mean) if abs(m_mean) > 1e-9 else 1.0
             cv = m_sd / denom
             variance_penalty[m] = variance_penalty_factor * cv
@@ -130,10 +132,11 @@ def mad_bootstrap_prune(
     # more-forgiving fallback and fall through to an absurdly tight
     # threshold built from a near-zero MAD (audit: 03-Medium).
     if math.isclose(mad, 0.0, abs_tol=1e-9):
-        try:
-            spread = statistics.pstdev(values)
-        except statistics.StatisticsError:
-            spread = 0.0
+        # `statistics.median(values)` above already raises on empty `values`, and `pstdev` raises only on
+        # empty - so this cannot fail here. The handler that used to sit here set `spread = 0.0`, which the
+        # very next line reads as "everything is constant" and returns the WHOLE field as kept: a pruner
+        # that prunes nothing, indistinguishable from a round where every arm genuinely tied.
+        spread = statistics.pstdev(values)
         if math.isclose(spread, 0.0, abs_tol=1e-9):
             return set(scores), {m: scores[m] for m in scores}
         constant_threshold_factor = 1.5

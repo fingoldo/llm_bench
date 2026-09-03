@@ -34,6 +34,8 @@ class _FakeProvider:
       404:     raise LLMProviderError-shaped exception (ModelNotFound)
       timeout: never resolve until cancelled
       raise:   raise generic error
+      truncation: raise the shape a reasoning model produces when the output
+                  ceiling cuts it off before its first visible token
     """
     model: str
     behavior: str
@@ -44,7 +46,7 @@ class _FakeProvider:
     last_reasoning_tokens: int = 0
     call_log: list[tuple[str, str]] = field(default_factory=list)
 
-    async def generate(self, *, prompt: str, system: str, max_tokens: int = 5) -> str:
+    async def generate(self, *, prompt: str, system: str, max_tokens: int = 1024, **_kw: Any) -> str:
         self.call_log.append((system[:30], prompt[:30]))
         if self.behavior == "ok":
             return "ok"
@@ -55,6 +57,8 @@ class _FakeProvider:
             return "should not get here"
         if self.behavior == "raise":
             raise RuntimeError("unexpected provider explosion")
+        if self.behavior == "truncation":
+            raise Exception("LLMTruncationError: response truncated at max_tokens before any content")
         raise AssertionError(f"unknown behavior {self.behavior!r}")
 
 
@@ -148,13 +152,31 @@ async def test_run_phase_with_preflight_drops_dead_candidates():
 
 
 @pytest.mark.asyncio
-async def test_preflight_without_provider_factory_raises():
-    """Without provider_factory there's nothing to ping with."""
+async def test_preflight_without_provider_factory_reports_the_failure_per_model(monkeypatch):
+    """Re-framed from "raises ValueError": a broken default factory is a per-model verdict, not a crash.
+
+    The old contract said preflight had "nothing to ping with" when `provider_factory` was None. That was
+    never true - `_call_llm` has always fallen back to `pyutilz.llm.get_llm_provider`, so a Benchmark
+    without an explicit factory runs fine and only `preflight` refused it. Worse, the refusal fired inside
+    `run_phase`, so the flag whose purpose is to fail cheaply before spending was itself the thing that
+    failed, for consumers following the documented default path.
+
+    What must still hold, and is what this now pins: a factory that cannot produce a provider is reported
+    as `ok=False` with `ProviderFactoryError` per model, never swallowed.
+    """
+    import pyutilz.llm as pyutilz_llm
+
+    def _no_provider(_label: str, *, model: str) -> object:
+        raise RuntimeError(f"no route for {model}")
+
+    monkeypatch.setattr(pyutilz_llm, "get_llm_provider", _no_provider)
+
     bench = _build_benchmark({})
     bench.provider_factory = None
     async with bench:
-        with pytest.raises(ValueError, match="provider_factory"):
-            await bench.preflight(["x"])
+        verdicts = await bench.preflight(["x"])
+    assert verdicts["x"].ok is False
+    assert verdicts["x"].error_class == "ProviderFactoryError"
 
 
 @pytest.mark.asyncio
@@ -169,3 +191,58 @@ async def test_preflight_runs_concurrently():
     # Six parallel ~instant pings should finish well under 2s; if they
     # serialised at concurrency=1 we'd see >1s easily even on a fast box.
     assert dt < 2.0, f"preflight too slow ({dt:.2f}s) - is concurrency wired?"
+
+
+@pytest.mark.asyncio
+async def test_preflight_falls_back_to_the_default_provider_factory(monkeypatch):
+    """A Benchmark with no explicit `provider_factory` can still preflight.
+
+    It could not before: `preflight` raised `ValueError` for exactly the consumers following the documented
+    default path, and it raised INSIDE `run_phase`, so the one flag whose purpose is to fail cheaply before
+    spending was itself the failure.
+    """
+    seen: list[str] = []
+
+    class _Ping:
+        async def generate(self, *, prompt: str, system: str = "", **_kw: object) -> str:
+            return "ok"
+
+    import pyutilz.llm as pyutilz_llm
+
+    def _fake_get_llm_provider(label: str, *, model: str) -> object:
+        seen.append(f"{label}:{model}")
+        return _Ping()
+
+    monkeypatch.setattr(pyutilz_llm, "get_llm_provider", _fake_get_llm_provider)
+
+    bench = _build_benchmark({})
+    bench.provider_factory = None
+    async with bench:
+        verdicts = await bench.preflight(["m1", "m2"], timeout_sec=2.0)
+    assert all(v.ok for v in verdicts.values())
+    assert seen == ["openrouter:m1", "openrouter:m2"]
+
+
+@pytest.mark.asyncio
+async def test_a_truncated_ping_counts_as_alive():
+    """A route that answered and ran out of output budget is working, not dead.
+
+    Measured on a real 8-model run: `max_tokens=5` (the old default) cuts a reasoning model off before its
+    first visible token, because thinking tokens are billed against the same completion budget. Preflight
+    then dropped a healthy model - the one outcome it exists to prevent, inverted.
+    """
+    bench = _build_benchmark({"reasoner": "truncation", "plain": "ok"})
+    async with bench:
+        verdicts = await bench.preflight(["reasoner", "plain"], timeout_sec=2.0)
+    assert verdicts["reasoner"].ok is True
+    assert "alive" in (verdicts["reasoner"].error_message or "")
+    assert verdicts["plain"].ok is True
+
+
+@pytest.mark.asyncio
+async def test_the_ping_ceiling_is_generous_by_default():
+    # A ceiling is not a cost on a one-line prompt; the thrift of a tiny cap bought nothing and cost
+    # every reasoning model in the pool.
+    import inspect
+
+    assert inspect.signature(Benchmark.preflight).parameters["max_tokens"].default >= 512

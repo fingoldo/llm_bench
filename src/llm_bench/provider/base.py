@@ -24,6 +24,20 @@ None)``, mirroring pyutilz's Phase-4 OpenRouter fields):
     last_web_search_citations, last_upstream_resolved_model,
     last_upstream_provider, last_upstream_model,
     last_native_finish_reason, last_generation_id
+
+One further optional attribute, read the same way and for a different purpose:
+    max_output_tokens - the largest output this provider will produce for the current model. The runner
+    reads it so that a call the consumer left uncapped carries an EXPLICIT ceiling instead of the implicit
+    0 that means "use my maximum". The number is usually the same either way; what changes is that it
+    becomes a stated value in the request rather than an absent field whose consequence - an unbounded cost
+    and an unbounded wall-clock, which on a fleet run is the difference between one slow arm and a round
+    that never ends - is discovered from the invoice. A provider that does not set it keeps the old
+    behaviour and the runner says so once.
+
+    Documented here rather than declared as a Protocol member for the reason given above: `runtime_checkable`
+    makes every declared member mandatory for `isinstance`, which is stricter than the runner enforces. That
+    was tried and reverted - it broke `test_class_with_generate_satisfies_protocol`, whose whole point is
+    that `generate()` alone is enough.
 """
 
 from __future__ import annotations

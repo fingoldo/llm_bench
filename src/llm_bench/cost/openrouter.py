@@ -78,14 +78,25 @@ def _pick_best_upstream(endpoints: list[dict]) -> dict:
             status_rank = 0 if raw_status >= 0 else 2
         else:
             status_rank = 1  # missing => treat as degraded
-        uptime = -(ep.get("uptime_30m") or ep.get("uptime_5m") or 0.0)
+        # PRESENCE, not truthiness - the same trap the latency comment below spells out, and it bites harder
+        # here: an endpoint reporting `uptime_30m: 0.0` is one that is completely DOWN, and `or` reads that as
+        # "no 30m data, try the 5m window", then as "no data at all". A dead endpoint therefore sorted exactly
+        # like one that has never been measured, and ahead of a healthy endpoint whose uptime is anything
+        # below 1.0. Zero is a legitimate value here, and the worst one.
+        raw_uptime = ep.get("uptime_30m")
+        if raw_uptime is None:
+            raw_uptime = ep.get("uptime_5m")
+        uptime = -(0.0 if raw_uptime is None else float(raw_uptime))
         raw_latency = ep.get("latency_p50_ms")
         # `or float("inf")` would treat a genuinely-fast (or reported as
         # exactly 0ms) endpoint as if it had NO latency data at all,
         # sorting the best endpoint last instead of first (default-via-or
         # trap: 0 is a legitimate falsy value here, not "missing").
         latency = float("inf") if raw_latency is None else raw_latency
-        throughput = -(ep.get("throughput_p50_tps") or 0.0)
+        # Same reading: a reported throughput of 0.0 is a stalled endpoint, not a missing measurement. Both
+        # sort last here, which is right, but they get there by meaning rather than by accident.
+        raw_throughput = ep.get("throughput_p50_tps")
+        throughput = -(0.0 if raw_throughput is None else float(raw_throughput))
         return (status_rank, uptime, latency, throughput)
 
     return sorted(endpoints, key=_key)[0]

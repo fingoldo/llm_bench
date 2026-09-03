@@ -33,6 +33,7 @@ from typing import Any
 from collections.abc import Callable
 
 from llm_bench.core.hashing import hash_text, prompt_hashes
+from llm_bench.runner.stage_kwargs import stage_generate_kwargs, warn_once
 from llm_bench.core.redaction import redact_secrets
 from llm_bench.core.types import (
     CachedResponse,
@@ -65,6 +66,11 @@ from llm_bench.stage.base import GoldChecker, StageContext
 from llm_bench.storage.base import BenchmarkStorage
 
 logger = logging.getLogger(__name__)
+
+# Re-exported: `stage_kwargs` was carved out to keep this module inside the 1000-LOC budget, and
+# the private names are what this module's own tests and call sites already use.
+_stage_generate_kwargs = stage_generate_kwargs
+_warn_once = warn_once
 
 # Logged once per (round, reason) instead of once per pipeline so a
 # large N=2 candidate pool doesn't spam identical warnings.
@@ -443,6 +449,7 @@ async def _call_llm_guarded(
     global_sem: asyncio.Semaphore,
     per_op_sems: dict[str, asyncio.Semaphore],
     stage_op: str,
+    generate_kwargs: dict[str, Any] | None = None,
 ) -> tuple[str | None, dict[str, Any], float, str | None, str | None]:
     """Acquire the global + per-op semaphores, call the provider, and
     classify any exception via ``classify_provider_error`` — the
@@ -456,16 +463,18 @@ async def _call_llm_guarded(
         sem = per_op_sems.get(stage_op)
         if sem is not None:
             await sem.acquire()
+        t0 = time.monotonic()
         try:
-            t0 = time.monotonic()
             response_text, telemetry = await _call_llm(
-                cfg=cfg, model=call_model, sys_p=sys_p, usr_p=usr_p,
+                cfg=cfg, model=call_model, sys_p=sys_p, usr_p=usr_p, generate_kwargs=generate_kwargs,
             )
-            duration = time.monotonic() - t0
             error_class = telemetry.get("error_class")
             error_message = telemetry.get("error_message")
         except Exception as e:
-            duration = 0.0
+            # The REAL elapsed time, not 0.0. A failure recorded as instant is indistinguishable from a fast
+            # success in every duration statistic downstream, and it hides the failure that matters most: a
+            # call that spent ten minutes in retries before timing out reads as free. `t0` is outside the
+            # try so the handler can always reach it.
             response_text = None
             error_class = classify_provider_error(type(e).__name__, str(e))
             error_message = redact_secrets(str(e))[:500]
@@ -473,7 +482,7 @@ async def _call_llm_guarded(
         finally:
             if sem is not None:
                 sem.release()
-    return response_text, telemetry, duration, error_class, error_message
+    return response_text, telemetry, time.monotonic() - t0, error_class, error_message
 
 
 def _maybe_quarantine(ctx: StageContext, cfg: RoundConfig, stage: Stage, duration: float, cost_usd: float) -> None:
@@ -689,6 +698,7 @@ async def _run_pipeline(
         response_text, telemetry, duration, error_class, error_message = await _call_llm_guarded(
             cfg=cfg, call_model=call_model, sys_p=sys_p, usr_p=usr_p,
             global_sem=global_sem, per_op_sems=per_op_sems, stage_op=stage.op,
+            generate_kwargs=_stage_generate_kwargs(stage, model=call_model, system=sys_p, user=usr_p),
         )
 
         # Parse + populate ctx so downstream stages have a substrate.
@@ -873,7 +883,7 @@ def _parse_safely(
 
 
 async def _call_llm(
-    *, cfg: RoundConfig, model: str, sys_p: str, usr_p: str,
+    *, cfg: RoundConfig, model: str, sys_p: str, usr_p: str, generate_kwargs: dict[str, Any] | None = None,
 ) -> tuple[str | None, dict[str, Any]]:
     """Make the actual LLM call via the configured provider factory.
 
@@ -881,6 +891,13 @@ async def _call_llm(
     OpenRouter provider. Returns ``(response_text, telemetry_dict)``
     where telemetry includes input/output/reasoning tokens, costs,
     and Phase-4 OR extras when available.
+
+    ``generate_kwargs`` carries the stage's ``json_schema`` and any
+    extra provider knobs. A provider whose ``generate`` does not accept
+    one of them raises ``TypeError``, which the caller's own
+    ``except Exception`` classifies and records like any other provider
+    failure — better than silently dropping a schema the consumer asked
+    for and reporting a score for output that was never constrained.
     """
     if cfg.provider_factory is not None:
         provider = cfg.provider_factory(model)
@@ -888,7 +905,20 @@ async def _call_llm(
         from pyutilz.llm import get_llm_provider
         provider = get_llm_provider(cfg.provider_label, model=model)
 
-    response = await provider.generate(prompt=usr_p, system=sys_p)
+    kwargs = dict(generate_kwargs or {})
+    if not kwargs.get("max_tokens"):
+        # An EXPLICIT cap, read from the provider, rather than the implicit 0 that means "use my maximum".
+        # The number is usually the same either way; what changes is that it is now a stated value that
+        # appears in the request and in any log of it, instead of an absent field whose consequence - an
+        # unbounded cost and an unbounded wall-clock, which on a fleet run is the difference between one
+        # slow arm and a round that never ends - is discovered from the invoice. A provider that cannot
+        # say keeps the old behaviour, and the caller hears about it once rather than once per call.
+        ceiling = getattr(provider, "max_output_tokens", 0) or 0
+        if ceiling:
+            kwargs["max_tokens"] = int(ceiling)
+        else:
+            warn_once(f"no max_tokens for {model} and the provider does not state its own ceiling - output is unbounded")
+    response = await provider.generate(prompt=usr_p, system=sys_p, **kwargs)
     telemetry: dict[str, Any] = {}
     # Pull whatever the provider exposes (pyutilz Phase-4 OR fields).
     for attr, key in [
@@ -911,4 +941,35 @@ async def _call_llm(
         v = getattr(provider, attr, None)
         if v is not None:
             telemetry[key] = v
+
+    # The attribute names above are a guess about the provider's internals, and for the pyutilz OpenRouter
+    # provider four of the most important are simply wrong: token counts live in `_last_usage[...]` and the
+    # cost in `last_actual_cost_usd`, so `last_input_tokens`/`last_output_tokens`/`last_cost_usd`/
+    # `last_effective_cost_usd` all resolve to None. Measured on a real 8-model run: every row recorded
+    # 0 input tokens, 0 output tokens and $0.00 cost while carrying real responses - and because the names
+    # that DO exist (`last_upstream_provider`, `last_generation_id`) came through fine, the failure looked
+    # like free calls rather than like a bug.
+    #
+    # It is not cosmetic. `BudgetGate` compares accumulated `cost_usd` against a cap and quarantine's cost
+    # limb compares a call's cost against `budget_per_call * multiplier`; with every cost zero, both are
+    # permanently inert. A spend cap that cannot fire is worse than none, because the operator believes
+    # they have one.
+    #
+    # `last_call_summary()` is the provider's own published snapshot with correct names, so prefer it and
+    # keep the getattr sweep above as the fallback for providers that do not offer one.
+    try:
+        summary = provider.last_call_summary
+    except AttributeError:
+        summary = None  # a provider without a snapshot keeps the attribute sweep above
+    if callable(summary):
+        try:
+            telemetry.update({k: v for k, v in (summary() or {}).items() if v is not None})
+        except Exception as e:  # a telemetry snapshot must never cost the response it describes
+            logger.warning("[_call_llm] last_call_summary() failed, keeping attribute-scraped telemetry: %s", e)
+
+    if response and not telemetry.get("output_tokens"):
+        # A non-empty completion always consumed output tokens. Zero here means the harvest missed them,
+        # which is exactly the silent-zero-cost failure above; say so once per call rather than letting a
+        # run's whole cost column read as free.
+        logger.warning("[_call_llm] %s returned %d chars but reported no output tokens - telemetry (and any budget cap) is not seeing this call", model, len(response))
     return response, telemetry

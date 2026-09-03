@@ -498,8 +498,10 @@
       "bases": [],
       "dataclass_fields": [
         "budget_per_call",
+        "generate_kwargs",
         "id",
         "is_validator",
+        "json_schema",
         "lang",
         "op",
         "parent_stage",
