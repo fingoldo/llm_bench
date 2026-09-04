@@ -230,3 +230,58 @@ def caplog_at(level):
         root.removeHandler(handler)
         root.setLevel(previous)
 
+
+
+class TestAFailedCallIsNotRecordedAsFree:
+    """A truncated or errored generation has already burned input and reasoning tokens, and has already
+    been billed. Recording it at zero cost makes a wave that fails a lot read as CHEAPER than one that
+    works, and leaves every spend cap blind to it.
+
+    Measured 2026-09-04 on the autopsia bycatch arena: 142 of 253 captures were failures and every one
+    carried cost 0, while one `z-ai/glm-5.3-flash` error message itself reported 5,741 reasoning tokens
+    spent on the very call it was reporting.
+    """
+
+    class _Provider:
+        max_output_tokens = 131_072
+
+        def last_call_summary(self):
+            return {"input_tokens": 17_746, "output_tokens": 0, "reasoning_tokens": 5_741, "cost_usd": 0.0124}
+
+        async def generate(self, **kwargs):
+            raise RuntimeError("OpenRouter response truncated by max_tokens (finish_reason='length')")
+
+    def _cfg(self, provider):
+        from llm_bench.runner.round_runner import RoundConfig
+
+        cfg = RoundConfig.__new__(RoundConfig)
+        object.__setattr__(cfg, "provider_factory", lambda model: provider)
+        return cfg
+
+    def test_the_exception_carries_what_the_call_spent(self):
+        import asyncio
+
+        from llm_bench.runner.round_runner import _call_llm
+
+        provider = self._Provider()
+        with pytest.raises(RuntimeError) as caught:
+            asyncio.run(_call_llm(cfg=self._cfg(provider), model="z-ai/glm-5.3-flash", sys_p="s", usr_p="u"))
+        spent = getattr(caught.value, "llm_bench_telemetry", None)
+        assert spent is not None, "a billed call that raised must still say what it cost"
+        assert spent["reasoning_tokens"] == 5_741
+        assert spent["cost_usd"] == pytest.approx(0.0124)
+
+    def test_a_provider_that_says_nothing_still_raises_cleanly(self):
+        """The harvest must never cost the exception it is describing."""
+        import asyncio
+
+        from llm_bench.runner.round_runner import _call_llm
+
+        class _Silent:
+            max_output_tokens = 0
+
+            async def generate(self, **kwargs):
+                raise RuntimeError("boom")
+
+        with pytest.raises(RuntimeError, match="boom"):
+            asyncio.run(_call_llm(cfg=self._cfg(_Silent()), model="a/silent", sys_p="s", usr_p="u"))

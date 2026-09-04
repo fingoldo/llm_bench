@@ -478,7 +478,10 @@ async def _call_llm_guarded(
             response_text = None
             error_class = classify_provider_error(type(e).__name__, str(e))
             error_message = redact_secrets(str(e))[:500]
-            telemetry = {}
+            # What the call SPENT before it failed, not an empty dict. `_call_llm` attaches the provider's
+            # own telemetry to the exception precisely so this branch does not have to record a billed call
+            # as free - and a failing wave reading cheaper than a working one is how a spend cap goes quiet.
+            telemetry = dict(getattr(e, "llm_bench_telemetry", None) or {})
         finally:
             if sem is not None:
                 sem.release()
@@ -882,43 +885,14 @@ def _parse_safely(
         return None
 
 
-async def _call_llm(
-    *, cfg: RoundConfig, model: str, sys_p: str, usr_p: str, generate_kwargs: dict[str, Any] | None = None,
-) -> tuple[str | None, dict[str, Any]]:
-    """Make the actual LLM call via the configured provider factory.
+def _harvest_telemetry(provider: Any) -> dict[str, Any]:
+    """Everything the provider says about the call it just made, whether that call succeeded or raised.
 
-    Default factory uses ``pyutilz.llm.get_llm_provider`` with the
-    OpenRouter provider. Returns ``(response_text, telemetry_dict)``
-    where telemetry includes input/output/reasoning tokens, costs,
-    and Phase-4 OR extras when available.
-
-    ``generate_kwargs`` carries the stage's ``json_schema`` and any
-    extra provider knobs. A provider whose ``generate`` does not accept
-    one of them raises ``TypeError``, which the caller's own
-    ``except Exception`` classifies and records like any other provider
-    failure — better than silently dropping a schema the consumer asked
-    for and reporting a score for output that was never constrained.
+    Split out of `_call_llm` so the failure path reads the SAME fields. A truncated or errored
+    generation has already been billed for its input and reasoning tokens; recording it at zero cost
+    makes a failing wave look cheaper than a working one, and leaves `BudgetGate` blind to the spend it
+    exists to cap.
     """
-    if cfg.provider_factory is not None:
-        provider = cfg.provider_factory(model)
-    else:
-        from pyutilz.llm import get_llm_provider
-        provider = get_llm_provider(cfg.provider_label, model=model)
-
-    kwargs = dict(generate_kwargs or {})
-    if not kwargs.get("max_tokens"):
-        # An EXPLICIT cap, read from the provider, rather than the implicit 0 that means "use my maximum".
-        # The number is usually the same either way; what changes is that it is now a stated value that
-        # appears in the request and in any log of it, instead of an absent field whose consequence - an
-        # unbounded cost and an unbounded wall-clock, which on a fleet run is the difference between one
-        # slow arm and a round that never ends - is discovered from the invoice. A provider that cannot
-        # say keeps the old behaviour, and the caller hears about it once rather than once per call.
-        ceiling = getattr(provider, "max_output_tokens", 0) or 0
-        if ceiling:
-            kwargs["max_tokens"] = int(ceiling)
-        else:
-            warn_once(f"no max_tokens for {model} and the provider does not state its own ceiling - output is unbounded")
-    response = await provider.generate(prompt=usr_p, system=sys_p, **kwargs)
     telemetry: dict[str, Any] = {}
     # Pull whatever the provider exposes (pyutilz Phase-4 OR fields).
     for attr, key in [
@@ -967,6 +941,57 @@ async def _call_llm(
         except Exception as e:  # a telemetry snapshot must never cost the response it describes
             logger.warning("[_call_llm] last_call_summary() failed, keeping attribute-scraped telemetry: %s", e)
 
+    return telemetry
+
+
+async def _call_llm(
+    *, cfg: RoundConfig, model: str, sys_p: str, usr_p: str, generate_kwargs: dict[str, Any] | None = None,
+) -> tuple[str | None, dict[str, Any]]:
+    """Make the actual LLM call via the configured provider factory.
+
+    Default factory uses ``pyutilz.llm.get_llm_provider`` with the
+    OpenRouter provider. Returns ``(response_text, telemetry_dict)``
+    where telemetry includes input/output/reasoning tokens, costs,
+    and Phase-4 OR extras when available.
+
+    ``generate_kwargs`` carries the stage's ``json_schema`` and any
+    extra provider knobs. A provider whose ``generate`` does not accept
+    one of them raises ``TypeError``, which the caller's own
+    ``except Exception`` classifies and records like any other provider
+    failure — better than silently dropping a schema the consumer asked
+    for and reporting a score for output that was never constrained.
+    """
+    if cfg.provider_factory is not None:
+        provider = cfg.provider_factory(model)
+    else:
+        from pyutilz.llm import get_llm_provider
+        provider = get_llm_provider(cfg.provider_label, model=model)
+
+    kwargs = dict(generate_kwargs or {})
+    if not kwargs.get("max_tokens"):
+        # An EXPLICIT cap, read from the provider, rather than the implicit 0 that means "use my maximum".
+        # The number is usually the same either way; what changes is that it is now a stated value that
+        # appears in the request and in any log of it, instead of an absent field whose consequence - an
+        # unbounded cost and an unbounded wall-clock, which on a fleet run is the difference between one
+        # slow arm and a round that never ends - is discovered from the invoice. A provider that cannot
+        # say keeps the old behaviour, and the caller hears about it once rather than once per call.
+        ceiling = getattr(provider, "max_output_tokens", 0) or 0
+        if ceiling:
+            kwargs["max_tokens"] = int(ceiling)
+        else:
+            warn_once(f"no max_tokens for {model} and the provider does not state its own ceiling - output is unbounded")
+    # HARVEST EVEN WHEN THE CALL RAISES. A truncated or errored generation has already burned input and
+    # reasoning tokens and has already been billed; discarding its telemetry records it at zero cost, so a
+    # wave that fails a lot looks CHEAPER than one that succeeds. Measured 2026-09-04 on the autopsia
+    # bycatch arena: 142 of 253 captures were failures and every one of them carried cost 0, while one
+    # glm-5.3-flash error message itself reported 5,741 reasoning tokens spent on the call it was reporting.
+    # The telemetry rides on the exception so the caller sees the same fields it would have on success.
+    try:
+        response = await provider.generate(prompt=usr_p, system=sys_p, **kwargs)
+    except Exception as exc:
+        exc.llm_bench_telemetry = _harvest_telemetry(provider)  # type: ignore[attr-defined]
+        raise
+    telemetry = _harvest_telemetry(provider)
     if response and not telemetry.get("output_tokens"):
         # A non-empty completion always consumed output tokens. Zero here means the harvest missed them,
         # which is exactly the silent-zero-cost failure above; say so once per call rather than letting a
