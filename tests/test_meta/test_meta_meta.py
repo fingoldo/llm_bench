@@ -4,10 +4,10 @@ failure-message + private-import discipline.
 Two guarantees enforced:
 
   M1. Every ``pytest.fail(...)`` call inside ``tests/test_meta/`` carries
-      an actionable message (a colon, slash, angle bracket, or one of
-      a small set of fix-prompt verbs). Generic ``pytest.fail("broken")``
-      is rejected — a meta-test failure should tell the reviewer what
-      to do, not just that something is wrong.
+      an actionable message, via ``py_ci_shared.fail_message_quality``:
+      a fix verb (``Add``, ``Either``, ``Refresh``, ...) or a ``<placeholder>``.
+      A colon or a path no longer counts: every static message contains
+      one, so the looser rule passed all of them without reading a word.
 
   M2. Meta-tests do NOT import private symbols (names starting with
       ``_``) from the production package. The whole point of a meta-test
@@ -19,18 +19,12 @@ Two guarantees enforced:
 from __future__ import annotations
 
 import ast
-import re
 from pathlib import Path
 
 import pytest
+from py_ci_shared.fail_message_quality import assert_fail_messages_actionable
 
 _TEST_META_DIR = Path(__file__).resolve().parent
-
-# Words / characters that count a failure message as actionable.
-_ACTIONABLE_RE = re.compile(
-    r"[:/<>]|\b(Add|Either|Refresh|Whitelist|Fix|Run|Update|Remove|Document|" r"Restore|Replace|Move|Use)\b",
-    re.IGNORECASE,
-)
 
 # Private symbols a meta-test is allowed to touch. Format:
 # "test_meta_filename::imported_dotted_name".
@@ -47,61 +41,9 @@ def _meta_test_files() -> list[Path]:
     return sorted(out)
 
 
-def _walk_pytest_fail_calls(tree: ast.AST):
-    """Yield every ``pytest.fail(...)`` Call node."""
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        f = node.func
-        if isinstance(f, ast.Attribute) and f.attr == "fail":
-            if isinstance(f.value, ast.Name) and f.value.id == "pytest":
-                yield node
-
-
-def _arg_static_text(arg: ast.AST) -> tuple[str, bool]:
-    """Return ``(joined_static_text, has_dynamic)`` for a Call's first arg."""
-    if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
-        return arg.value, False
-    if isinstance(arg, ast.JoinedStr):
-        # f-string — concat string parts; the {expr} parts are dynamic.
-        static = "".join(part.value for part in arg.values if isinstance(part, ast.Constant) and isinstance(part.value, str))
-        has_dynamic = any(not (isinstance(part, ast.Constant) and isinstance(part.value, str)) for part in arg.values)
-        return static, has_dynamic
-    if isinstance(arg, ast.BinOp):
-        # "..." + var or "%s" % var
-        l, dl = _arg_static_text(arg.left)
-        r, dr = _arg_static_text(arg.right)
-        return l + r, dl or dr or True
-    return "", True
-
-
 def test_pytest_fail_messages_are_actionable():
-    """M1 — every pytest.fail() must include actionable detail."""
-    violations: list[str] = []
-    for path in _meta_test_files():
-        try:
-            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        except SyntaxError as e:
-            violations.append(f"{path.name}: SyntaxError: {e}")
-            continue
-        for call in _walk_pytest_fail_calls(tree):
-            if not call.args:
-                violations.append(f"{path.name}:{call.lineno}: pytest.fail() with no message — " f"add an actionable hint.")
-                continue
-            text, has_dynamic = _arg_static_text(call.args[0])
-            # Dynamic parts (f-string expressions) likely include the offending
-            # value, so they ARE actionable. Static-only strings are audited.
-            if has_dynamic:
-                continue
-            if not _ACTIONABLE_RE.search(text):
-                violations.append(
-                    f"{path.name}:{call.lineno}: pytest.fail({text!r}) is "
-                    f"not actionable — include a colon, path, angle bracket, "
-                    f"or fix-prompt verb (Add/Either/Refresh/Fix/Run/Update/...)."
-                )
-    if violations:
-        msg = "\n  ".join(violations)
-        pytest.fail(f"Non-actionable pytest.fail() calls:\n  {msg}")
+    """M1 — every static pytest.fail() message names a fix verb or a placeholder."""
+    assert_fail_messages_actionable(_TEST_META_DIR, exclude=(Path(__file__).name,), min_audited=3)
 
 
 def test_no_private_imports_from_production():
