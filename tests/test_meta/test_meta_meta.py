@@ -13,15 +13,16 @@ Two guarantees enforced:
       ``_``) from the production package. The whole point of a meta-test
       is to police the public contract; reaching into internals tests
       implementation, not behaviour. Whitelist via
-      ``_PERMITTED_PRIVATE_IMPORTS`` for legitimate cases.
+      ``_PERMITTED_PRIVATE_IMPORTS`` for legitimate cases, checked by
+      ``py_ci_shared.meta_private_imports``, where a permitted entry nothing
+      imports fails.
 """
 
 from __future__ import annotations
 
-import ast
 from pathlib import Path
 
-import pytest
+from py_ci_shared.meta_private_imports import assert_no_private_meta_imports
 from py_ci_shared.fail_message_quality import assert_fail_messages_actionable
 
 _TEST_META_DIR = Path(__file__).resolve().parent
@@ -31,55 +32,13 @@ _TEST_META_DIR = Path(__file__).resolve().parent
 _PERMITTED_PRIVATE_IMPORTS: set[str] = set()
 
 
-def _meta_test_files() -> list[Path]:
-    """All test_*.py files in tests/test_meta/, except this file."""
-    out = []
-    for py in _TEST_META_DIR.glob("test_*.py"):
-        if py.name == Path(__file__).name:
-            continue
-        out.append(py)
-    return sorted(out)
-
-
 def test_pytest_fail_messages_are_actionable():
     """M1 — every static pytest.fail() message names a fix verb or a placeholder."""
     assert_fail_messages_actionable(_TEST_META_DIR, exclude=(Path(__file__).name,), min_audited=3)
 
 
 def test_no_private_imports_from_production():
-    """M2 — meta-tests don't reach into private internals."""
-    violations: list[str] = []
-    for path in _meta_test_files():
-        try:
-            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        except SyntaxError as e:
-            violations.append(f"{path.name}: SyntaxError: {e}")
-            continue
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom):
-                mod = node.module or ""
-                if not mod.startswith("llm_bench"):
-                    continue
-                for alias in node.names:
-                    if alias.name.startswith("_"):
-                        key = f"{path.stem}::{mod}.{alias.name}"
-                        if key in _PERMITTED_PRIVATE_IMPORTS:
-                            continue
-                        violations.append(
-                            f"{path.name}:{node.lineno}: imports private "
-                            f"{alias.name!r} from {mod!r}. Either whitelist "
-                            f"in _PERMITTED_PRIVATE_IMPORTS with rationale, "
-                            f"or test the public contract instead."
-                        )
-            elif isinstance(node, ast.Import):
-                for alias in node.names:
-                    parts = alias.name.split(".")
-                    if parts[0] == "llm_bench" and any(p.startswith("_") for p in parts):
-                        violations.append(
-                            f"{path.name}:{node.lineno}: imports private "
-                            f"module path {alias.name!r}. Use the public "
-                            f"surface or whitelist with rationale."
-                        )
-    if violations:
-        msg = "\n  ".join(violations)
-        pytest.fail(f"Meta-tests reaching into private internals:\n  {msg}")
+    """F2: a private import from a meta-test needs a permitted entry with its reason, and a permitted entry nothing imports fails."""
+    assert_no_private_meta_imports(
+        _TEST_META_DIR, ('llm_bench',), permitted=_PERMITTED_PRIVATE_IMPORTS, exclude=(Path(__file__).name,), any_segment=True, min_files=10
+    )

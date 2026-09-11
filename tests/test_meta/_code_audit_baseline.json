@@ -7,12 +7,9 @@
   "default_via_or::cost/estimator.py::d9cd0a47f765",
   "default_via_or::halving/assignment.py::cfbeda6236a8",
   "default_via_or::halving/driver.py::663c4f479b7a",
-  "default_via_or::ranking/ranker.py::5e8bcfce8dd3",
   "default_via_or::storage/postgres.py::e36b8ed0bbda",
   "duplicate_credential_regex::core/redaction.py::39fa92c6febf",
   "duplicate_function_body_subset::storage/file.py::d0bda524d05c",
   "effect_flag_outside_its_effect::core/types.py::c2661170a906",
-  "getattr_unknown_attribute::cli/main.py::afa749505981",
-  "getattr_unknown_attribute::runner/round_runner.py::4d44e22cca93",
   "llm_call_missing_max_tokens_cap::runner/round_runner.py::2ceb1bf9e938"
 ]
