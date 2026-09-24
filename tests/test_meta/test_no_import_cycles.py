@@ -1,33 +1,32 @@
-"""Catch import cycles in llm_bench's package layering.
+"""llm_bench's package layering, checked by ``py_ci_shared.import_layering``.
 
-The framework's intended dependency stack:
+The intended dependency stack:
 
-    core/        (no internal imports — leaf layer)
-      ↑
-    pool/, stage/, cost/, storage/   (depend on core/ only)
-      ↑
+    core/        (no internal imports: leaf layer)
+      ^
+    pool/, stage/, cost/, storage/, provider/   (depend on core/ only)
+      ^
     halving/, ranking/, discovery/   (depend on the layer above + core)
-      ↑
-    runner/, confirmation/, cli/     (depend on everything else)
+      ^
+    runner/, confirmation/           (depend on everything else)
+      ^
+    cli/
 
-Any reverse edge — e.g. ``core/`` importing from ``runner/`` — would
-introduce a cycle and is rejected here. The check is structural (AST
-parse of every .py file under src/llm_bench/) so it doesn't require
-the modules to actually import (handy when an optional dep is missing).
+A subpackage may import only from a LOWER layer; siblings at one layer may not import each other. The shared checker
+resolves relative imports too (``from ..runner import x``), which the local scanner it replaces did not. Real import
+cycles, including the load-order kind, are the ``import_cycles`` gate in ``[tool.py_ci_shared]`` of pyproject.toml.
 """
 
 from __future__ import annotations
 
-import ast
 from pathlib import Path
 
-import pytest
+from py_ci_shared.import_layering import LayerRule, assert_layering, find_layering_violations
 
-_SRC_ROOT = Path(__file__).resolve().parents[2] / "src" / "llm_bench"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+_PKG = "src/llm_bench"
 
-# Layer index — lower = more foundational. Imports may only flow from
-# higher index → lower index. Equal-index siblings may NOT import each
-# other (sibling discipline keeps the layout flat).
+# Layer index: lower = more foundational.
 _LAYER: dict[str, int] = {
     "core": 0,
     "pool": 1,
@@ -44,69 +43,33 @@ _LAYER: dict[str, int] = {
 }
 
 
-def _module_layer(rel: Path) -> tuple[str, int] | None:
-    """For ``src/llm_bench/storage/memory.py`` returns ('storage', 1)."""
-    parts = rel.parts
-    # parts[0] is the subpackage name; "__init__.py" or any submodule.
-    if len(parts) < 1:
-        return None
-    sub = parts[0]
-    if sub not in _LAYER:
-        return None
-    return sub, _LAYER[sub]
+def _rules() -> list[LayerRule]:
+    return [
+        LayerRule(
+            f"{_PKG}/{sub}/*",
+            [f"{_PKG}/{other}/*" for other, other_layer in _LAYER.items() if other != sub and other_layer >= layer],
+            reason=f"{sub}/ is layer {layer}: it may import only from lower layers",
+        )
+        for sub, layer in _LAYER.items()
+    ]
 
 
-def _imports_from_module(path: Path) -> set[str]:
-    """Return every ``llm_bench.X`` (where X is a known subpackage)
-    imported by this file."""
-    src = path.read_text(encoding="utf-8")
-    try:
-        tree = ast.parse(src, filename=str(path))
-    except SyntaxError as e:
-        pytest.fail(f"SyntaxError parsing {path}: {e}")
-    out: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom):
-            mod = node.module or ""
-            if mod.startswith("llm_bench."):
-                # llm_bench.storage.base -> 'storage'
-                head = mod.split(".", 2)[1]
-                if head in _LAYER:
-                    out.add(head)
-        elif isinstance(node, ast.Import):
-            for alias in node.names:
-                if alias.name.startswith("llm_bench."):
-                    head = alias.name.split(".", 2)[1]
-                    if head in _LAYER:
-                        out.add(head)
-    return out
+def test_every_layer_exists():
+    missing = [sub for sub in _LAYER if not (REPO_ROOT / _PKG / sub).is_dir()]
+    assert not missing, f"layers named in _LAYER with no directory under {_PKG}: {missing}"
 
 
-def test_no_upward_imports():
-    """Layer-N module may NOT import from layer >= N+1 (no upward edges,
-    no sibling-to-sibling)."""
-    violations: list[str] = []
-    for path in sorted(_SRC_ROOT.rglob("*.py")):
-        if "__pycache__" in path.parts:
-            continue
-        rel = path.relative_to(_SRC_ROOT)
-        info = _module_layer(rel)
-        if info is None:
-            continue
-        sub, layer = info
-        for imported in _imports_from_module(path):
-            if imported == sub:
-                continue  # intra-subpackage imports OK
-            other_layer = _LAYER[imported]
-            if other_layer >= layer:
-                # Sibling (==) or upward (>) — both forbidden.
-                kind = "sibling" if other_layer == layer else "upward"
-                violations.append(
-                    f"{rel}: {kind} import from {imported!r} "
-                    f"(layer {other_layer}) — this module is layer {layer}. "
-                    f"Either move the shared code to a lower layer, or "
-                    f"restructure to remove the dependency."
-                )
-    if violations:
-        msg = "\n  ".join(violations)
-        pytest.fail(f"Import-layer violations:\n  {msg}")
+def test_no_upward_or_sibling_imports():
+    assert_layering(REPO_ROOT, _rules())
+
+
+def test_an_upward_import_is_reported(tmp_path):
+    """The rules have teeth on this layout: core importing runner is a violation."""
+    for sub in ("core", "runner"):
+        (tmp_path / _PKG / sub).mkdir(parents=True)
+        (tmp_path / _PKG / sub / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / _PKG / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / _PKG / "runner" / "r.py").write_text("X = 1\n", encoding="utf-8")
+    (tmp_path / _PKG / "core" / "c.py").write_text("from llm_bench.runner.r import X\n", encoding="utf-8")
+    problems = find_layering_violations(tmp_path, _rules())
+    assert any("core/c.py" in p and "runner" in p for p in problems), problems

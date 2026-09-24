@@ -1,69 +1,27 @@
-"""Meta-linter: forbid audit-wave/batch-ID filenames under tests/.
+"""Test files are named after what they cover, not after the audit wave, round or batch that produced them.
 
-Filenames like ``test_wave97_*.py``, ``test_round17_*.py``, or
-``test_batch3_*.py`` carry process metadata (which review pass, which
-sprint) that belongs in git history or a PR description, not on disk --
-a test's name should describe what it covers, not when it was written.
-This project's own convention is different: docstrings freely cite a
-specific audit finding for context (e.g. ``(audit: 04-High)``), which is
-fine and must NOT be flagged here -- only a NUMBERED wave/round/batch
-tag used as part of the organizing FILENAME is the actual anti-pattern.
+``py_ci_shared.audit_wave_filenames`` holds the shared stem patterns (``test_wave97_``, ``test_round17_``,
+``test_audit_2026_`` ...). This repo adds three of its own the shared list lacks: ``test_rounds<n>_``,
+``test_batch<n>_`` and ``test_phase<n>_``. Docstrings citing a finding stay legal: only file names are checked.
 """
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
-_TESTS_ROOT = Path(__file__).resolve().parents[1]
+from py_ci_shared.audit_wave_filenames import assert_no_new_audit_wave_filenames, find_audit_wave_test_files
 
-# Any test_*.py whose stem matches one of these patterns is rejected.
-_FORBIDDEN_PATTERNS = [
-    re.compile(r"^test_wave\d+_"),
-    re.compile(r"^test_waves\d+_"),
-    re.compile(r"^test_round\d+_"),
-    re.compile(r"^test_rounds\d+_"),
-    re.compile(r"^test_batch\d+_"),
-    re.compile(r"^test_audit_\d{4}_"),
-    re.compile(r"^test_phase\d+_"),
-]
-
-
-def _iter_test_files() -> list[Path]:
-    return [p for p in _TESTS_ROOT.rglob("test_*.py") if "__pycache__" not in p.parts and p.name != Path(__file__).name]
+TESTS_DIR = Path(__file__).resolve().parents[1]
+_EXTRA_PATTERNS = (r"^test_rounds\d+_", r"^test_batch\d+_", r"^test_phase\d+_")
 
 
 def test_no_audit_wave_filenames() -> None:
-    offenders: list[str] = []
-    for path in _iter_test_files():
-        stem = path.stem
-        for pat in _FORBIDDEN_PATTERNS:
-            if pat.match(stem):
-                offenders.append(str(path.relative_to(_TESTS_ROOT)))
-                break
-    assert not offenders, f"Audit-wave/batch filenames must be renamed to topic-canonical names. Offenders: {offenders}"
+    assert_no_new_audit_wave_filenames(TESTS_DIR, extra_patterns=_EXTRA_PATTERNS)
 
 
-class TestNoAuditWaveFilenamesDetectsShapes:
-    def test_wave_prefix_detected(self, tmp_path):
-        (tmp_path / "test_wave97_reporting_split.py").write_text("def test_x(): pass\n", encoding="utf-8")
-        offenders = [str(p) for p in tmp_path.rglob("test_*.py") if any(pat.match(p.stem) for pat in _FORBIDDEN_PATTERNS)]
-        assert offenders
-
-    def test_round_prefix_detected(self, tmp_path):
-        (tmp_path / "test_round17_valonly_null_detection.py").write_text("def test_x(): pass\n", encoding="utf-8")
-        offenders = [str(p) for p in tmp_path.rglob("test_*.py") if any(pat.match(p.stem) for pat in _FORBIDDEN_PATTERNS)]
-        assert offenders
-
-    def test_topic_named_file_not_flagged(self, tmp_path):
-        (tmp_path / "test_reporting_module_split.py").write_text("def test_x(): pass\n", encoding="utf-8")
-        offenders = [str(p) for p in tmp_path.rglob("test_*.py") if any(pat.match(p.stem) for pat in _FORBIDDEN_PATTERNS)]
-        assert not offenders
-
-    def test_audit_finding_docstring_citation_not_flagged(self, tmp_path):
-        # This project's own convention: docstrings cite "(audit: 04-High)"
-        # freely -- this scanner only looks at FILENAMES, never at
-        # docstring/comment text, so this must never be flagged.
-        (tmp_path / "test_classify.py").write_text('"""Regression test (audit: 04-High)."""\ndef test_x(): pass\n', encoding="utf-8")
-        offenders = [str(p) for p in tmp_path.rglob("test_*.py") if any(pat.match(p.stem) for pat in _FORBIDDEN_PATTERNS)]
-        assert not offenders
+def test_repo_specific_patterns_fire(tmp_path):
+    """The three local patterns reach the shared scanner: each stem is reported, a topic name is not."""
+    for stem in ("test_rounds2_x", "test_batch3_x", "test_phase4_x", "test_reporting_split"):
+        (tmp_path / f"{stem}.py").write_text("def test_x(): pass\n", encoding="utf-8")
+    found = {Path(p).stem for p in find_audit_wave_test_files(tmp_path, extra_patterns=_EXTRA_PATTERNS)}
+    assert found == {"test_rounds2_x", "test_batch3_x", "test_phase4_x"}

@@ -110,14 +110,13 @@ jobs:
         with:
           enable-cache: true
 
-      # pyproject.toml's [tool.ruff] extend = "$PY_CI_SHARED_DIR/configs/ruff-base.toml" -- ruff
-      # expands env vars in `extend` paths (docs.astral.sh/ruff/settings), so this just needs to
-      # point at ANY real py-ci-shared checkout. See that repo's README "Using the shared ruff
-      # config" section for the full rationale.
+      # pyproject.toml's [tool.ruff] extend = "$PY_CI_SHARED_DIR/configs/ruff-base.toml". The config comes from the
+      # same pinned py-ci-shared the dev extra and the black step install, so config and gate code are one version.
       - name: Resolve PY_CI_SHARED_DIR
         run: |
-          git clone --depth 1 https://github.com/fingoldo/py-ci-shared.git "${RUNNER_TEMP}/py-ci-shared"
-          echo "PY_CI_SHARED_DIR=${RUNNER_TEMP}/py-ci-shared" >> "$GITHUB_ENV"
+          uv pip install --system "py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@6a8e3829678dab35e21d380292f7b34ae84c8d14"  # v1.17.0
+          d=$(dirname "$(dirname "$(py-ci-shared config-path ruff-base)")")
+          echo "PY_CI_SHARED_DIR=$d" >> "$GITHUB_ENV"
 
       # Blocking, `--ignore C901` to match the pre-commit `ruff-real-bugs` hook
       # exactly (see .pre-commit-config.yaml): this project treats complexity
@@ -129,7 +128,7 @@ jobs:
       # hatch as the deliberately-advisory complexity findings (audit:
       # 10-High) -- this restores the local/CI split pre-commit already had.
       - name: Run ruff (real bugs, matches pre-commit's ruff-real-bugs hook)
-        run: uvx ruff check --ignore C901 src/
+        run: uvx ruff@0.16.1 check --ignore C901 src/
 
       # Filtered wrapper, not raw black -- this job already duplicates the dedicated
       # black-filtered.yml gate elsewhere in CI (that one IS blocking), so staying
@@ -137,9 +136,7 @@ jobs:
       # separate jobs; the two excluded diff classes stay intentionally unflagged
       # in both places for the same reason. Switched 2026-07-18.
       - name: Run black --check (filtered)
-        run: |
-          uv pip install --system "py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@a49421c79f4262326295ed14ed3859e9b85fdc5b"
-          python -m py_ci_shared.black_filtered_apply --config pyproject.toml --check src/
+        run: python -m py_ci_shared.black_filtered_apply --config pyproject.toml --check src/
         continue-on-error: true
 
       # Blocking: src/ currently has zero bandit findings at -ll (verified
@@ -236,6 +233,29 @@ jobs:
 
       - name: Run meta-tests (alias / API / optional-deps / side effects)
         run: pytest tests/test_meta/ --no-cov -p no:randomly -q
+
+      # The gates enabled in [tool.py_ci_shared] of pyproject.toml. The test job's bare `pytest` collects them too;
+      # this step keeps them in the job that exists for meta checks.
+      - name: Run py-ci-shared gates
+        run: py-ci-shared run-all
+
+  # Shared blocking lint bundle (actionlint, zizmor, codespell, yamllint, bandit, vulture, interrogate, deptry),
+  # pinned to the same py-ci-shared commit as the dev extra.
+  lint-blocking:
+    name: lint + security (shared, blocking)
+    permissions:
+      contents: read
+    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@6a8e3829678dab35e21d380292f7b34ae84c8d14  # v1.17.0
+    with:
+      source-path: src/llm_bench
+      codespell-paths: src/llm_bench README.md
+      interrogate-source-path: src/llm_bench
+      # The measured floor in [tool.interrogate] fail-under; the shared default of 100 would fail at 70%.
+      interrogate-fail-under: 65
+      deptry-install-command: |
+        git clone https://github.com/fingoldo/pyutilz.git
+        git -C pyutilz checkout 8ffd7e6cdcfd104e428253bf67ae173798943cde
+        uv pip install --system "./pyutilz[llm]" -e ".[dev,postgres]"
 
   build:
     name: build sdist + wheel + install smoke

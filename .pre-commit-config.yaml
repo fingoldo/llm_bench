@@ -38,6 +38,17 @@ repos:
   # narrowing pyproject.toml's configured select, silently dropping the ``ignore`` list too and
   # breaking RUF100's "is this noqa still needed" determination. ``--ignore`` only ADDS to the
   # configured ignore list, so it is safe.
+  # First: says whether the interpreter's ruff and the pyproject pin match what py-ci-shared's CI workflows run.
+  - repo: local
+    hooks:
+      - id: pinned-tool-versions
+        name: "pinned tool versions (ruff) match py-ci-shared"
+        entry: python -m py_ci_shared.pinned_tool_versions
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+
   - repo: local
     hooks:
       - id: ruff-real-bugs
@@ -62,6 +73,14 @@ repos:
         types: [python]
         pass_filenames: false
         always_run: false
+        stages: [pre-commit]
+
+      - id: py-ci-shared-run-all
+        name: "py-ci-shared gates in [tool.py_ci_shared] (blocking)"
+        entry: python -m py_ci_shared.cli run-all
+        language: system
+        types: [python]
+        pass_filenames: false
         stages: [pre-commit]
 
       - id: llm_bench-meta-tests-static-only

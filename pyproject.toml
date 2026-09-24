@@ -48,7 +48,8 @@ postgres = [
     "asyncpg>=0.28",
 ]
 dev = [
-    "ruff>=0.1",
+    # Exact, equal to py_ci_shared.tool_versions.RUFF_VERSION; the pinned-tool-versions hook holds the two together.
+    "ruff==0.16.1",
     "black>=23.0",
     "mypy>=1.0",
     "pytest>=7.0",
@@ -62,7 +63,7 @@ dev = [
     "hypothesis>=6.0",
     "pre-commit>=3.0",
     "detect-secrets>=1.5",
-    "py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git",
+    "py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@6a8e3829678dab35e21d380292f7b34ae84c8d14",  # v1.17.0
     # The 6 hygiene tools .pre-commit-config.yaml's *-blocking hooks invoke via
     # `python -m <tool>` (zizmor excepted -- it runs standalone via `uvx zizmor .`,
     # needing no persistent install). Declared here so both the local pre-commit
@@ -265,4 +266,70 @@ DEP002 = [
 # "unparseable" (cost/openrouter.py docstring): valid English spelling variant of "unparsable" --
 # same confirmed false positive mlframe's codespell config already carries for the identical word.
 [tool.codespell]
-ignore-words-list = "unparseable"
+# "truncat": benchmark.py matches it as a substring of provider error text ("truncated", "truncation").
+ignore-words-list = "unparseable,truncat"
+
+# Gates run by `pytest` with no path arguments (one item each, `pyproject.toml::<gate>`) and by
+# `py-ci-shared run-all` in the meta job. Paths are relative to the repository root.
+[tool.py_ci_shared]
+enable = [
+    "swallowed_exceptions",
+    "hash_key_determinism",
+    "sentinel_or_fallback",
+    "pickle_state_completeness",
+    "rollback_then_continue",
+    "atomic_write_staging",
+    "stale_source_citations",
+    "hardcoded_token_ceilings",
+    "machine_specific_paths",
+]
+
+[tool.py_ci_shared.gates.import_cycles]
+src_root = "src"
+
+[tool.py_ci_shared.gates.no_xfail_to_defer]
+tests_root = "tests"
+
+[tool.py_ci_shared.gates.clock_day_boundary]
+tests_root = "tests"
+
+[tool.py_ci_shared.gates.unread_init_params]
+files = ["src/**/*.py"]
+
+[tool.py_ci_shared.gates.discarded_model_copy]
+files = ["src/**/*.py"]
+allowed = {}
+
+[tool.py_ci_shared.gates.runtime_registry_mutation]
+files = ["src/**/*.py"]
+replay_writers = {}
+
+[tool.py_ci_shared.gates.unresolved_imports]
+scan_roots = ["src", "tests"]
+package_roots = ["src"]
+resolvable_prefixes = ["llm_bench"]
+
+[tool.py_ci_shared.gates.gate_integrity]
+precommit_path = ".pre-commit-config.yaml"
+workflows_dir = ".github/workflows"
+
+# Every narrowing of a blocking gate, with why it is there.
+[tool.py_ci_shared.gates.gate_integrity.declared]
+"ci.yml::lint-blocking::with::interrogate-fail-under=65" = "the measured docstring coverage floor, the same number as [tool.interrogate] fail-under; raised as coverage grows"
+"ci.yml::hygiene::vulture dead-code scan::run::--min-confidence=80" = "below 80% vulture reports dynamic dispatch (Protocol methods, pytest hooks) as dead; same floor as the pre-commit hook"
+"ci.yml::lint::Run bandit security scan::run::-ll=" = "medium and high severity block; low-severity findings (asserts, subprocess imports) are advisory in the lint-advisory hook"
+"ci.yml::lint::Run ruff (real bugs, matches pre-commit's ruff-real-bugs hook)::run::--ignore=C901" = "complexity is a design signal, reported by the advisory hook, not a real-bug gate"
+"ci.yml::test::Run tests with coverage (offline + postgres, skip live)::run::-m=not live" = "live tests call paid provider APIs and need keys CI does not hold"
+"pre-commit::bandit-blocking::-ll=" = "same severity floor as the CI bandit step"
+"pre-commit::detect-secrets::exclude=\\.secrets\\.baseline$" = "the baseline file lists hashed findings; scanning it reports itself"
+"pre-commit::ruff-real-bugs::--ignore=C901" = "complexity is advisory, as in CI"
+"pre-commit::ruff-real-bugs::exclude=(^|/)(tests|examples|benchmarks)/" = "mirrors ruff's own exclude list in pyproject, which explicit file arguments bypass"
+"pre-commit::vulture-blocking::--min-confidence=80" = "same floor as the CI vulture step"
+"pre-commit::yamllint-blocking::files=^(\\.github/workflows/.*\\.ya?ml|\\.pre-commit-config\\.yaml)$" = "yamllint's subject is the workflow and hook files; other YAML is data"
+"pre-commit::zizmor-blocking::files=^\\.github/workflows/.*\\.ya?ml$" = "zizmor audits GitHub workflows only"
+
+[tool.py_ci_shared.gates.coverage_gate_parity]
+module = "gate_integrity"
+entry = "assert_coverage_gate_parity"
+pyproject_path = "pyproject.toml"
+workflows_dir = ".github/workflows"

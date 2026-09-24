@@ -19,15 +19,10 @@ bespoke scanner would just be a worse copy of the shared one, and this
 package already depends on py-ci-shared for other meta-tests
 (``test_code_audit_baseline.py``, ``conftest.py``'s baseline-refresh flags).
 
-The one exemption (2026-08-22) is FIRST-PARTY: ``py-ci-shared`` is owned by
-the same account as this repo, so the threat a SHA pin defends against --
-an upstream maintainer moving a ref under us -- cannot happen without an
-attacker who could already push here directly. It is also a ``[dev]`` extra
-(CI tooling), never part of the runtime surface a PyPI consumer of
-``llm_bench`` installs, so floating it cannot reach users; the blast radius
-is a red CI run here. Every THIRD-PARTY git dependency stays strictly
-SHA-pinned via the empty-by-default allowlist, which is what S-04 was
-actually about.
+No exemption, first-party included: ``py-ci-shared`` supplies the gate code
+these meta-tests run, so a floating ref changes what they check with no commit
+here, and local runs and CI drift apart. It is pinned to one commit, the same
+one every workflow ``uses:``.
 """
 
 from __future__ import annotations
@@ -38,24 +33,19 @@ from py_ci_shared.git_dependency_pins import assert_all_git_dependencies_pinned,
 
 _PYPROJECT_PATH = Path(__file__).resolve().parents[2] / "pyproject.toml"
 
-# First-party upstreams, exempt from the full-SHA requirement -- see the module docstring.
-_FIRST_PARTY_GIT_PREFIXES = ("git+https://github.com/fingoldo/",)
-
-
 def test_all_git_dependencies_pinned():
-    assert_all_git_dependencies_pinned(_PYPROJECT_PATH, allow_unpinned_url_prefixes=_FIRST_PARTY_GIT_PREFIXES)
+    assert_all_git_dependencies_pinned(_PYPROJECT_PATH)
 
 
-def test_third_party_git_dependency_would_still_be_flagged(tmp_path):
-    """The first-party allowlist must not have widened into a blanket
-    exemption: a non-fingoldo git URL is still a violation."""
+def test_first_party_git_dependency_is_flagged_too(tmp_path):
+    """A floating fingoldo URL is a violation like any other."""
     p = tmp_path / "synthetic_pyproject.toml"
     p.write_text(
-        '[project]\ndependencies = [\n    "foopkg @ git+https://github.com/example/foopkg.git@main",\n]\n',
+        '[project.optional-dependencies]\ndev = [\n    "py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git",\n]\n',
         encoding="utf-8",
     )
-    violations: list[str] = find_unpinned_git_dependencies(p, allow_unpinned_url_prefixes=_FIRST_PARTY_GIT_PREFIXES)
-    assert violations == ["main"]
+    violations: list[str] = find_unpinned_git_dependencies(p)
+    assert violations == ["<no ref>"]
 
 
 class TestFindUnpinnedGitDependenciesDetectsShapes:

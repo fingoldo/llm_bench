@@ -23,10 +23,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
-py_ci_shared = pytest.importorskip("py_ci_shared", reason="py-ci-shared is a dev-only git dependency")
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 

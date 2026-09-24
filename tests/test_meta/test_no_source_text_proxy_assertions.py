@@ -66,7 +66,6 @@ import pytest
 _REPO_TESTS = Path(__file__).resolve().parent.parent  # tests/
 
 # Per-site whitelist for confirmed false positives: "<rel_path>::<lineno>".
-_GETSOURCE_WHITELIST: set[str] = set()
 _READ_TEXT_FIND_WHITELIST: set[str] = set()
 
 _POSITION_METHODS = frozenset({"find", "index", "rfind"})
@@ -241,28 +240,11 @@ def _iter_test_files() -> list[Path]:
 
 
 def test_no_inspect_getsource_proxy_assertions():
-    """Check 1 -- see module docstring. inspect.getsource() feeding an
-    in/not-in/.find()/.index()/.rfind()/regex-search assertion violates
-    feedback_behavioral_tests: call the real function and assert its result."""
-    offenders: list[str] = []
-    for path in _iter_test_files():
-        rel = path.relative_to(_REPO_TESTS).as_posix()
-        for lineno, kind, shape in _find_proxy_sites(path):
-            if kind != "getsource":
-                continue
-            key = f"{rel}::{lineno}"
-            if key in _GETSOURCE_WHITELIST:
-                continue
-            offenders.append(f"{rel}:{lineno}: inspect.getsource() feeds {shape}")
-    if offenders:
-        msg = "\n  ".join(offenders)
-        pytest.fail(
-            f"inspect.getsource() used as a behaviour proxy:\n  {msg}\n"
-            f"Replace with a real runtime check (call the function, assert on its "
-            f"return value / raised exception / side effect), or if this is a "
-            f"confirmed structural check (e.g. call-order in an uncompilable-without-"
-            f"hardware code path), add the site to _GETSOURCE_WHITELIST with a reason."
-        )
+    """Check 1 -- see module docstring, now the shared ``py_ci_shared.source_text_claims`` detector, a superset of the
+    local getsource scan (aliases, ``dis``, ``ast.unparse``, ``.py``/``.sql`` files read through ``__file__``, helpers)."""
+    from py_ci_shared.source_text_claims import assert_no_new_source_text_claims
+
+    assert_no_new_source_text_claims(_iter_test_files(), _REPO_TESTS.parent)
 
 
 def test_no_read_text_position_proxy_assertions():

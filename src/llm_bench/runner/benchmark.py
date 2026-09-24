@@ -126,7 +126,7 @@ class Benchmark:
         *,
         prompt: str = "Reply with one word.",
         system: str = "You are a benchmark preflight ping.",
-        max_tokens: int = 1024,
+        max_tokens: int = 1024,  # token-ceiling-ok: a liveness ping; a truncated answer counts as alive (see docstring)
         timeout_sec: float = 30.0,
         concurrency: int = 8,
     ) -> dict[str, PreflightResult]:
