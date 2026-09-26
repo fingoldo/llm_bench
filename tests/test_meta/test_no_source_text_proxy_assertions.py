@@ -247,6 +247,10 @@ def test_no_inspect_getsource_proxy_assertions():
     assert_no_new_source_text_claims(_iter_test_files(), _REPO_TESTS.parent)
 
 
+# Delete this check (and _find_proxy_sites' read_text half) once the py-ci-shared pin reaches 1.18.0: from that release
+# source_text_claims flags a position taken in any file's text, including through a parameter path and a helper's return.
+# It deliberately leaves out reads of data-suffix files, of tmp_path output, and a position never asserted on; this
+# repo has none of the three (measured on 70 test files with py-ci-shared master: 0 hits here, 0 claims there).
 def test_no_read_text_position_proxy_assertions():
     """Check 2 -- see module docstring. read_text() feeding a
     .find()/.index()/.rfind() byte-position assertion violates

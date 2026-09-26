@@ -57,5 +57,3 @@ def stage_generate_kwargs(stage: Stage, *, model: str = "", system: str = "", us
         else:
             resolved[key] = value
     return resolved
-
-
