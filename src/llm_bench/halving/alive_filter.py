@@ -63,6 +63,10 @@ DEAD_ERROR_CLASSES: frozenset[str] = frozenset({
     "EmptyChoices",
     "ProviderError",
     "JsonModeUnsupported",
+    # No endpoint honours every parameter the stage sends (strict schema, reasoning): the model cannot run this
+    # benchmark's requests, which is the same verdict as JsonModeUnsupported, recorded under its own label so it is
+    # never read as the model having been removed (ModelNotFound).
+    "ParametersUnsupported",
     "EmptyContent",
     "TruncatedDegenerate",
     "ContextOverflow",
@@ -89,6 +93,8 @@ TRANSIENT_ERROR_CLASSES: frozenset[str] = frozenset({
     "APITimeoutError",
     "APIConnectionError",
     "RateLimitError",
+    # A mid-stream upstream failure (pyutilz LLMStreamInterruptedError): infrastructure, not the model's quality.
+    "StreamInterrupted",
 })
 
 

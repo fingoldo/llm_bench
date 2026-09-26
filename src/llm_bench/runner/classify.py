@@ -24,6 +24,14 @@ def classify_provider_error(exc_name: str, message: str | None) -> str:
     contract.
     """
     msg = (message or "").lower()
+    if exc_name == "LLMStreamInterruptedError":
+        # The upstream failed after it had started answering: transient infrastructure, never a quality verdict.
+        return "StreamInterrupted"
+    if "requested parameters" in msg or "require_parameters" in msg:
+        # OpenRouter's 404 "No endpoints found that can handle the requested parameters": the model exists but no
+        # endpoint honours every parameter sent (strict json_schema, reasoning). A capability miss, not a removed
+        # model, so it must be tested before the "no endpoints found" ModelNotFound arm below.
+        return "ParametersUnsupported"
     if (
         "api error 404" in msg
         or "api error 405" in msg

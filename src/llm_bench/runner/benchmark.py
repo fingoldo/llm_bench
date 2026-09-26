@@ -95,6 +95,9 @@ class Benchmark:
     provider_factory: Any = None
     thinking: str = ""
     provider_label: str = "openrouter"
+    provider_kwargs: dict[str, Any] = field(default_factory=dict)
+    """Constructor kwargs for the default ``get_llm_provider`` factory (see ``RoundConfig.provider_kwargs``). Pin
+    ``provider_quantizations`` here so a ranking never compares one model on fp4 with another on bf16."""
     global_concurrency: int = 30
     per_op_concurrency: dict[str, int] = field(default_factory=dict)
 
@@ -166,7 +169,7 @@ class Benchmark:
         def _default_factory(model: str) -> Any:
             from pyutilz.llm import get_llm_provider
 
-            return get_llm_provider(self.provider_label, model=model)
+            return get_llm_provider(self.provider_label, model=model, **self.provider_kwargs)
 
         # `is None`, not `or`: a consumer's factory is not required to be truthy, and silently replacing a
         # falsy-but-real one with the default would ping a different backend than the round will actually
@@ -324,6 +327,7 @@ class Benchmark:
                 provider_factory=self.provider_factory,
                 thinking=self.thinking,
                 provider_label=self.provider_label,
+                provider_kwargs=dict(self.provider_kwargs),
             )
             round_result = await run_round(cfg)
             report.rounds.append(round_result)

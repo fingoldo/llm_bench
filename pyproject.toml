@@ -30,11 +30,9 @@ classifiers = [
 # unified ``reasoning`` field, ``supports_json_mode()``, and the
 # Phase-4 OR extras (cache_discount, is_byok, web_search).
 dependencies = [
-    # Pinned >= 1.0; in practice we rely on the post-1.0.0 commits
-    # adding Phase-4 OR fields, supports_json_mode(), unified reasoning,
-    # and two-stage list_openrouter_models. Tighten to >=1.1 once
-    # those land in a tagged pyutilz release.
-    "pyutilz>=1.0",
+    # 1.1 carries the Phase-4 OR fields, supports_json_mode(), unified reasoning, two-stage
+    # list_openrouter_models, the provider_* routing kwargs and LLMStreamInterruptedError.
+    "pyutilz>=1.1",
     "httpx>=0.25",
     "tenacity>=8.0",
     "pydantic>=2.0",

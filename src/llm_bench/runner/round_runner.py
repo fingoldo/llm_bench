@@ -141,6 +141,12 @@ class RoundConfig:
     backends (audit: 01/03-High). Set this alongside a custom
     ``provider_factory`` to keep the two in sync.
     """
+    provider_kwargs: dict[str, Any] = field(default_factory=dict)
+    """Constructor kwargs for the DEFAULT factory's ``get_llm_provider(provider_label, model=..., **provider_kwargs)``,
+    e.g. ``provider_quantizations=("bf16", "fp16", "fp8", "unknown")`` so every candidate is graded on a comparable
+    endpoint. Ignored when ``provider_factory`` is set (that factory owns its own route policy). Non-empty kwargs are
+    folded into the recorded provider identity (``provider_identity``), so rows made under two route policies are never
+    pooled or served to each other from the resume cache."""
     quarantine_duration_sec: float = 300.0
     quarantine_cost_multiplier: float = 10.0
     """Storm-detection thresholds backing ``StageContext.quarantined``
@@ -153,6 +159,20 @@ class RoundConfig:
     spending on that same pair's remaining stages. Does not affect
     other (model, task_unit) pairs running concurrently.
     """
+
+
+def provider_identity(label: str, provider_kwargs: dict[str, Any] | None) -> str:
+    """The provider string recorded on every row: the label, plus a digest of the route policy when one is set."""
+    if not provider_kwargs:
+        return label
+    import json
+
+    encoded = json.dumps(provider_kwargs, sort_keys=True, default=repr, ensure_ascii=False)
+    return f"{label}{{route:{hash_text(encoded)[:12]}}}"
+
+
+def _row_provider(cfg: RoundConfig) -> str:
+    return provider_identity(cfg.provider_label, None if cfg.provider_factory is not None else cfg.provider_kwargs)
 
 
 async def _preload_winner_substrates(cfg: RoundConfig) -> dict[tuple[str, str], RunRow]:
@@ -545,7 +565,7 @@ async def _record_prompt_build_failure(
     synthetic_hash = hash_text(f"__prompt_build_failure__:{stage.id}:{task_unit.id}:{model}")
     row = RunRow(
         composite_hash=synthetic_hash,
-        provider=cfg.provider_label,
+        provider=_row_provider(cfg),
         model=model,
         thinking=cfg.thinking,
         stage=stage.id,
@@ -659,7 +679,7 @@ async def _run_pipeline(
         # their own key.
         _sys_h, _usr_h, comp_h = prompt_hashes(sys_p, usr_p)
         cached = await cfg.resume_cache.get(
-            composite_hash=comp_h, provider=cfg.provider_label,
+            composite_hash=comp_h, provider=_row_provider(cfg),
             model=model, thinking=cfg.thinking,
         )
         if cached is not None:
@@ -729,7 +749,7 @@ async def _run_pipeline(
 
         row = RunRow(
             composite_hash=comp_h,
-            provider=cfg.provider_label,
+            provider=_row_provider(cfg),
             model=model,
             thinking=cfg.thinking,
             stage=stage.id,
@@ -799,7 +819,7 @@ async def _run_pipeline(
                         thinking=cfg.thinking,
                         source_tag=cfg.experiment_tag,
                     ),
-                    provider=cfg.provider_label, model=model,
+                    provider=_row_provider(cfg), model=model,
                 )
         except Exception as persist_exc:
             _log_throttled(
@@ -965,7 +985,7 @@ async def _call_llm(
         provider = cfg.provider_factory(model)
     else:
         from pyutilz.llm import get_llm_provider
-        provider = get_llm_provider(cfg.provider_label, model=model)
+        provider = get_llm_provider(cfg.provider_label, model=model, **cfg.provider_kwargs)
 
     kwargs = dict(generate_kwargs or {})
     if not kwargs.get("max_tokens"):

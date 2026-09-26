@@ -125,9 +125,10 @@ def _factory_dry_run(model: str) -> _FakeProvider:
     return _FakeProvider(model)
 
 
-def _factory_live(model: str):
-    from pyutilz.llm import get_llm_provider
-    return get_llm_provider("openrouter", model=model)
+#: Live runs use the default factory with this route policy: every candidate is served at 8 bits or better (or an
+#: undeclared precision), so a ranking never compares one model on an fp4 endpoint with another on bf16. Needs a pyutilz
+#: whose OpenRouterProvider takes ``provider_quantizations``.
+LIVE_PROVIDER_KWARGS = {"provider_quantizations": ("bf16", "fp16", "fp8", "unknown")}
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -159,13 +160,15 @@ async def main(args: argparse.Namespace) -> int:
     )
 
     candidates = args.candidates_list or DEFAULT_CANDIDATES[: args.candidates]
+    provider_kwargs: dict = {}
     if args.dry_run:
         provider_factory = _factory_dry_run
     else:
         if not os.environ.get("OPENROUTER_API_KEY"):
             logger.error("[job_app] OPENROUTER_API_KEY not set; pass --dry-run for " "deterministic offline mode")
             return 2
-        provider_factory = _factory_live
+        provider_factory = None
+        provider_kwargs = dict(LIVE_PROVIDER_KWARGS)
 
     bench = Benchmark(
         task_pool=pool,
@@ -175,6 +178,7 @@ async def main(args: argparse.Namespace) -> int:
         gold_checker=None,
         row_scorer=job_app_row_scorer,
         provider_factory=provider_factory,
+        provider_kwargs=provider_kwargs,
         global_concurrency=args.concurrency,
     )
 
