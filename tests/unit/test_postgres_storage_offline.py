@@ -16,6 +16,8 @@ configured.
 from __future__ import annotations
 
 import asyncio
+import sys
+import types
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -92,13 +94,21 @@ def _fake_pool(execute_side_effect=None):
     return pool, conn
 
 
+def _install_fake_asyncpg(monkeypatch, create_pool):
+    """Stand in for the whole asyncpg module, not just one attribute of it.
+
+    initialize() does a function-local ``import asyncpg``, which resolves through
+    ``sys.modules`` first, so these tests need neither a database nor the optional
+    ``[postgres]`` extra installed: they exercise the same initialize()/close()
+    branches in every environment, including CI jobs that install only ``[dev]``."""
+    monkeypatch.setitem(sys.modules, "asyncpg", types.SimpleNamespace(create_pool=create_pool))
+
+
 class TestInitializeWiring:
     async def test_command_timeout_passed_to_create_pool(self, monkeypatch):
-        import asyncpg
-
         pool, _conn = _fake_pool()
         create_pool = AsyncMock(return_value=pool)
-        monkeypatch.setattr(asyncpg, "create_pool", create_pool)
+        _install_fake_asyncpg(monkeypatch, create_pool)
 
         storage = PostgresStorage(FAKE_DSN, command_timeout=12.5, min_connections=2, max_connections=4)
         await storage.initialize()
@@ -114,11 +124,9 @@ class TestInitializeWiring:
         # Direct regression test for the TOCTOU-race fix: N concurrent
         # initialize() callers must not each independently call
         # asyncpg.create_pool (leaking every loser's pool).
-        import asyncpg
-
         pool, _conn = _fake_pool()
         create_pool = AsyncMock(return_value=pool)
-        monkeypatch.setattr(asyncpg, "create_pool", create_pool)
+        _install_fake_asyncpg(monkeypatch, create_pool)
 
         storage = PostgresStorage(FAKE_DSN)
         await asyncio.gather(*(storage.initialize() for _ in range(10)))
@@ -127,10 +135,8 @@ class TestInitializeWiring:
         await storage.close()
 
     async def test_create_pool_failure_wrapped_with_redacted_dsn(self, monkeypatch):
-        import asyncpg
-
         create_pool = AsyncMock(side_effect=ConnectionRefusedError("connection refused"))
-        monkeypatch.setattr(asyncpg, "create_pool", create_pool)
+        _install_fake_asyncpg(monkeypatch, create_pool)
 
         storage = PostgresStorage(FAKE_DSN)
         with pytest.raises(RuntimeError) as exc_info:
@@ -142,11 +148,9 @@ class TestInitializeWiring:
         assert exc_info.value.__cause__ is not None
 
     async def test_ddl_failure_closes_pool_and_leaves_uninitialized(self, monkeypatch):
-        import asyncpg
-
         pool, _conn = _fake_pool(execute_side_effect=RuntimeError("ddl boom"))
         create_pool = AsyncMock(return_value=pool)
-        monkeypatch.setattr(asyncpg, "create_pool", create_pool)
+        _install_fake_asyncpg(monkeypatch, create_pool)
 
         storage = PostgresStorage(FAKE_DSN)
         with pytest.raises(RuntimeError, match="ddl boom"):

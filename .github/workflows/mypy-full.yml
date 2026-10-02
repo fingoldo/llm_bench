@@ -39,6 +39,6 @@ jobs:
       mypy-version: "2.1.0"
       advisory: false
       install-command: |
-        git clone https://github.com/fingoldo/pyutilz.git
-        git -C pyutilz checkout c4bad3fa3b267af483e154ecc653bb31d065ec85
-        uv pip install --system "./pyutilz[llm]" -e ".[dev,postgres]"
+        git clone https://github.com/fingoldo/pyutilz.git ../pyutilz
+        git -C ../pyutilz checkout c4bad3fa3b267af483e154ecc653bb31d065ec85
+        uv pip install --system "../pyutilz[llm]" -e ".[dev,postgres]"

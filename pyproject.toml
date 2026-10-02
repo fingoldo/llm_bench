@@ -230,13 +230,11 @@ verbose = 1
 # 'job_pool'/'stages' -- not third-party packages at all, just names deptry can't resolve outside
 # that example's own local context). benchmarks/ are standalone perf-comparison scripts, same
 # reasoning: they import only llm_bench itself plus stdlib, but live outside src/ like examples/.
-# "pyutilz": CI clones pyutilz as a SUBDIRECTORY of this checkout to install it from a local path
-# (.github/workflows/ci.yml's "Clone & install pyutilz" step) -- deptry's own exclude matching is
-# anchored (a bare "build" only excludes a literal top-level build/, not pyutilz/build/), so its
-# nested source AND its own build/ staging dir both need an explicit exclude; without it deptry
-# reports pyutilz's entire dependency surface (numpy/pandas/PIL/boto3/...) as if it were this
-# repo's own problem, confirmed in CI 2026-07-23.
-exclude = ["tests", "examples", "benchmarks", ".venv", "build", "dist", "pyutilz"]
+# No "pyutilz" entry: CI clones the pyutilz sibling to ../pyutilz, OUTSIDE this checkout, so no
+# workspace-wide tool (deptry ., zizmor ., codespell, yamllint) ever sees another repo's files.
+# Cloning it inside the checkout once made deptry report pyutilz's whole dependency surface and
+# zizmor audit pyutilz's own .github/workflows as if they were this repo's.
+exclude = ["tests", "examples", "benchmarks", ".venv", "build", "dist"]
 
 [tool.deptry.per_rule_ignores]
 DEP003 = ["llm_bench"]

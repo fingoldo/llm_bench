@@ -68,10 +68,12 @@ jobs:
         # pyutilz is a first-party sibling dep not yet on PyPI: clone it and install from the local path so
         # llm_bench's `pyutilz>=1.1` resolves to it. Installed in a SINGLE `uv pip install` alongside
         # llm_bench's own [dev,postgres] extras so the resolver sees the whole graph at once.
+        # Cloned to ../pyutilz, OUTSIDE the checkout, in every job: workspace-wide scans (zizmor ., deptry .)
+        # would otherwise audit pyutilz's own files as if they were this repo's.
         run: |
-          git clone https://github.com/fingoldo/pyutilz.git
-          git -C pyutilz checkout c4bad3fa3b267af483e154ecc653bb31d065ec85
-          uv pip install --system "./pyutilz[llm]" -e ".[dev,postgres]"
+          git clone https://github.com/fingoldo/pyutilz.git ../pyutilz
+          git -C ../pyutilz checkout c4bad3fa3b267af483e154ecc653bb31d065ec85
+          uv pip install --system "../pyutilz[llm]" -e ".[dev,postgres]"
 
       - name: Show installed versions
         run: |
@@ -184,9 +186,9 @@ jobs:
 
       - name: Clone & install pyutilz + llm_bench
         run: |
-          git clone https://github.com/fingoldo/pyutilz.git
-          git -C pyutilz checkout c4bad3fa3b267af483e154ecc653bb31d065ec85
-          uv pip install --system "./pyutilz[llm]" -e ".[dev,postgres]"
+          git clone https://github.com/fingoldo/pyutilz.git ../pyutilz
+          git -C ../pyutilz checkout c4bad3fa3b267af483e154ecc653bb31d065ec85
+          uv pip install --system "../pyutilz[llm]" -e ".[dev,postgres]"
 
       - name: vulture dead-code scan
         run: python -m vulture src/llm_bench --min-confidence 80
@@ -226,10 +228,12 @@ jobs:
           cache-dependency-glob: pyproject.toml
 
       - name: Clone & install pyutilz + llm_bench
+        # [dev] only, deliberately: test_branch_coverage_ratchet must measure the same branches with or without
+        # the [postgres] extra, so this job keeps proving the offline tests do not depend on asyncpg.
         run: |
-          git clone https://github.com/fingoldo/pyutilz.git
-          git -C pyutilz checkout c4bad3fa3b267af483e154ecc653bb31d065ec85
-          uv pip install --system "./pyutilz[llm]" -e ".[dev]"
+          git clone https://github.com/fingoldo/pyutilz.git ../pyutilz
+          git -C ../pyutilz checkout c4bad3fa3b267af483e154ecc653bb31d065ec85
+          uv pip install --system "../pyutilz[llm]" -e ".[dev]"
 
       - name: Run meta-tests (alias / API / optional-deps / side effects)
         run: pytest tests/test_meta/ --no-cov -p no:randomly -q
@@ -253,9 +257,9 @@ jobs:
       # The measured floor in [tool.interrogate] fail-under; the shared default of 100 would fail at 70%.
       interrogate-fail-under: 65
       deptry-install-command: |
-        git clone https://github.com/fingoldo/pyutilz.git
-        git -C pyutilz checkout c4bad3fa3b267af483e154ecc653bb31d065ec85
-        uv pip install --system "./pyutilz[llm]" -e ".[dev,postgres]"
+        git clone https://github.com/fingoldo/pyutilz.git ../pyutilz
+        git -C ../pyutilz checkout c4bad3fa3b267af483e154ecc653bb31d065ec85
+        uv pip install --system "../pyutilz[llm]" -e ".[dev,postgres]"
 
   build:
     name: build sdist + wheel + install smoke
