@@ -44,7 +44,7 @@ def sqlite_store(tmp_path, monkeypatch):
 
     monkeypatch.setattr("llm_bench.storage.file.aiosqlite.connect", AsyncMock(return_value=db))
     store = FileStorage(tmp_path / "runs")
-    store._recorded = db
+    store._recorded = db  # type: ignore[attr-defined]  # test-only handle to the recorded fake
     return store
 
 
@@ -108,8 +108,8 @@ def pg_store(monkeypatch):
 
     monkeypatch.setattr("asyncpg.create_pool", AsyncMock(return_value=pool))
     store = PostgresStorage("postgresql://user:secret@host/db")
-    store._recorded_pool = pool
-    store._recorded_conn = conn
+    store._recorded_pool = pool  # type: ignore[attr-defined]  # test-only handle to the recorded fake
+    store._recorded_conn = conn  # type: ignore[attr-defined]  # test-only handle to the recorded fake
     return store
 
 
