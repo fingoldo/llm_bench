@@ -1,7 +1,14 @@
 # Pre-commit hooks for llm_bench.
 #
-# Install:
-#   pip install pre-commit && pre-commit install
+# Install (once per clone; the hooks live in the shared .git/hooks and worktrees reuse them):
+#   python -m pre_commit install --hook-type pre-commit --hook-type pre-push
+#
+# pre-commit stage: seconds-to-a-minute (lint, format check, secret scan, workflow checks).
+# pre-push stage: the slow gate. mypy, deptry and the whole suite as CI's `test` job runs it (`pytest -m "not live"`,
+# 3 to 8 min depending on load, --timeout=900), except tests/test_meta/test_branch_coverage_ratchet.py: it nests a whole
+# `-n auto` coverage run of the suite and dies on a loaded interpreter that has unrelated optional packages installed.
+# Left to CI: that ratchet (the `meta` job), the postgres service container (tests needing LLM_BENCH_TEST_DB_URL skip
+# here), the 3.11-3.14 matrix, the build/wheel smoke job and the shared mypy-full / black-filtered workflows' own runs.
 #
 # To skip in a hurry:
 #   git commit --no-verify
@@ -10,7 +17,22 @@
 # (skip subprocess-isolation tests):
 #   pre-commit run --hook-stage=manual llm_bench-meta-tests-static-only
 
+default_install_hook_types: [pre-commit, pre-push]
+
 repos:
+  # File hygiene. The repo is CRLF throughout, so line endings are only CHECKED for mixing, never rewritten.
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ['--maxkb=500']
+      - id: mixed-line-ending
+        args: ['--fix=no']
+
   # Secret-scanner -- catches accidental commits of LLM API keys (sk-or-..., sk-ant-..., xai-...).
   # Runs on every staged change. Update the baseline with:
   #   detect-secrets scan > .secrets.baseline
@@ -25,7 +47,7 @@ repos:
   # bad expressions, unknown runner labels, duplicate keys, shell-syntax errors in `run:` blocks
   # via its bundled shellcheck integration). Mirrors mlframe's/pyutilz's setup.
   - repo: https://github.com/Mateusz-Grzelinski/actionlint-py
-    rev: v1.7.12.24
+    rev: v1.7.12.25
     hooks:
       - id: actionlint
 
@@ -66,15 +88,6 @@ repos:
 
   - repo: local
     hooks:
-      - id: llm_bench-meta-tests
-        name: "llm_bench meta-tests (api stability / cycles / encoding / hygiene)"
-        entry: pytest tests/test_meta/ --no-cov -p no:randomly -q -x
-        language: system
-        types: [python]
-        pass_filenames: false
-        always_run: false
-        stages: [pre-commit]
-
       - id: py-ci-shared-run-all
         name: "py-ci-shared gates in [tool.py_ci_shared] (blocking)"
         entry: python -m py_ci_shared.cli run-all
@@ -83,9 +96,17 @@ repos:
         pass_filenames: false
         stages: [pre-commit]
 
+      - id: llm_bench-tests
+        name: "llm_bench full suite as CI's test job runs it, not live (blocking, pre-push, 4-8 min)"
+        entry: python -m pytest -m "not live" --timeout=900 --deselect tests/test_meta/test_branch_coverage_ratchet.py
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [pre-push]
+
       - id: llm_bench-meta-tests-static-only
         name: "llm_bench meta-tests (static analysis only — fast subset)"
-        entry: pytest tests/test_meta/ --no-cov -p no:randomly -q -x -k "not subprocess"
+        entry: python -m pytest tests/test_meta/ --no-cov -p no:randomly -q -x -k "not subprocess"
         language: system
         types: [python]
         pass_filenames: false
@@ -107,17 +128,20 @@ repos:
         verbose: true
         stages: [pre-commit]
 
-  # Black: formatting pass with line-length=160 (project standard, see [tool.black] in
-  # pyproject.toml). MANUAL-stage only, same rationale as mlframe/pyutilz: raw/unfiltered black
-  # applies diff classes the project doesn't want auto-churned. Use
-  # `python -m py_ci_shared.black_filtered_apply --write <files>` for the sanctioned pass instead
-  # of `pre-commit run --hook-stage manual black`.
-  - repo: https://github.com/psf/black
-    rev: 25.1.0
+  # Black, filtered, BLOCKING: what the black-filtered.yml workflow runs (`--check src/llm_bench` through
+  # black_filtered_apply with black 26.5.1, py_ci_shared.tool_versions.BLACK_VERSION at the pinned py-ci-shared).
+  # Raw black is not used: it applies diff classes the project doesn't want churned, and the former manual raw-black
+  # hook (rev 25.1.0) contradicted the version CI runs. Apply with
+  # `python -m py_ci_shared.black_filtered_apply --config pyproject.toml --write <files>`.
+  - repo: local
     hooks:
-      - id: black
-        language_version: python3
-        stages: [manual]
+      - id: black-filtered-blocking
+        name: "black 26.5.1, filtered (blocking; black-filtered.yml)"
+        entry: python -m py_ci_shared.black_filtered_apply --config pyproject.toml --check
+        language: system
+        types: [python]
+        files: '^src/llm_bench/'
+        stages: [pre-commit]
 
   # MyPy: whole-project, BLOCKING. Unlike mlframe/pyutilz (which scope mypy to a narrow
   # strict-mode beachhead over a large codebase), llm_bench is small enough (39 source files) that
@@ -132,12 +156,12 @@ repos:
   - repo: local
     hooks:
       - id: mypy-blocking
-        name: "mypy (blocking, whole src/llm_bench + tests tree)"
+        name: "mypy (blocking, pre-push, whole src/llm_bench + tests tree)"
         entry: python -m mypy src/llm_bench tests
         language: system
         types: [python]
         pass_filenames: false
-        stages: [pre-commit]
+        stages: [pre-push]
 
   # Security-lint gate: bandit -ll (medium+ severity). Blocking -- closed to 0 findings 2026-07-11
   # (13 B608 SQL-construction findings in storage/postgres.py, all `# nosec B608`'d individually:
@@ -190,11 +214,11 @@ repos:
   - repo: local
     hooks:
       - id: deptry-blocking
-        name: "deptry dependency check (blocking)"
+        name: "deptry dependency check (blocking, pre-push)"
         entry: python -m deptry .
         language: system
         pass_filenames: false
-        stages: [pre-commit]
+        stages: [pre-push]
 
   # Prose-typo gate: codespell. Blocking -- config/ignore-words-list comes from [tool.codespell]
   # in pyproject.toml, same as CI. Closed to 0 findings 2026-07-11 ("unparseable" is a valid
@@ -239,6 +263,7 @@ repos:
 
   # Advisory-taste warn-only gate: unrestricted-select ruff (surfaces everything the blocking
   # gate's --ignore C901 hides) + mccabe complexity (C90) + pip-audit (dependency CVE feed).
+  # MANUAL stage (pip-audit alone takes ~3 min): `pre-commit run --hook-stage manual lint-advisory-warn`.
   # Never blocks -- design taste / a feed whose fix isn't always on your own timeline, not a
   # correctness bug. Same pattern as mlframe's/pyutilz's hook.
   - repo: local
@@ -249,4 +274,4 @@ repos:
         language: system
         types: [python]
         verbose: true
-        stages: [pre-commit]
+        stages: [manual]
