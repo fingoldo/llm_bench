@@ -61,6 +61,12 @@ def _run_release_check(script: str, ref_name: str) -> subprocess.CompletedProces
     )
 
 
+def _without_git_hook_env() -> dict[str, str]:
+    """The environment minus every GIT_* variable. Inside a git hook (the pre-push run of this suite) `GIT_DIR` and friends point at the OUTER repository, so a
+    `git commit` in a throwaway repo committed into, or was refused by, the wrong one."""
+    return {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+
+
 def _run_dispatch_check(script: str, repo_dir: Path) -> subprocess.CompletedProcess:
     """Run the ``workflow_dispatch`` guard's shell snippet against an isolated throwaway git
     repo -- it shells out to ``git rev-parse --verify refs/tags/v$PKG``, so exercising both the
@@ -72,6 +78,7 @@ def _run_dispatch_check(script: str, repo_dir: Path) -> subprocess.CompletedProc
         capture_output=True,
         text=True,
         timeout=30,
+        env=_without_git_hook_env(),
     )
 
 
@@ -83,7 +90,7 @@ def _make_repo(tmp_path: Path, version: str, tag: Optional[str]) -> Path:
     (repo / "pyproject.toml").write_text(f'[project]\nname = "dummy"\nversion = "{version}"\n', encoding="utf-8")
 
     def git(*args: str) -> None:
-        subprocess.run(["git", *args], cwd=str(repo), check=True, capture_output=True, text=True, timeout=30)
+        subprocess.run(["git", *args], cwd=str(repo), check=True, capture_output=True, text=True, timeout=30, env=_without_git_hook_env())
 
     git("init", "-q")
     git("config", "user.email", "test@example.com")
@@ -96,7 +103,7 @@ def _make_repo(tmp_path: Path, version: str, tag: Optional[str]) -> Path:
 
 
 class TestReleaseTagVersionGuard:
-    """"Assert git tag matches package version": ``${GITHUB_REF_NAME#v}`` must equal
+    """ "Assert git tag matches package version": ``${GITHUB_REF_NAME#v}`` must equal
     pyproject.toml's ``[project].version``."""
 
     def test_step_exists_and_references_the_right_inputs(self):
@@ -130,7 +137,7 @@ class TestReleaseTagVersionGuard:
 
 
 class TestDispatchTagExistsGuard:
-    """"Assert a matching release tag exists (workflow_dispatch)": requires a
+    """ "Assert a matching release tag exists (workflow_dispatch)": requires a
     ``v<pyproject-version>`` tag to already exist in the repo's tag history."""
 
     def test_step_exists_and_references_the_right_inputs(self):
