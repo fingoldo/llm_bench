@@ -41,3 +41,14 @@ def postgres_test_url() -> str | None:
     and skip if it's None.
     """
     return os.environ.get("LLM_BENCH_TEST_DB_URL") or None
+
+
+@pytest.fixture(autouse=True)
+def _reset_round_runner_log_state():
+    yield
+    import sys
+
+    rr = sys.modules.get("llm_bench.runner.round_runner")
+    if rr is not None:
+        rr._validator_skip_logged.clear()
+        rr._throttle_hit_counts.clear()
