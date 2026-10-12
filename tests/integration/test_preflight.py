@@ -240,9 +240,8 @@ async def test_a_truncated_ping_counts_as_alive():
 
 
 @pytest.mark.asyncio
-async def test_the_ping_ceiling_is_generous_by_default():
-    # A ceiling is not a cost on a one-line prompt; the thrift of a tiny cap bought nothing and cost
-    # every reasoning model in the pool.
+async def test_the_ping_sends_no_number_of_ours_by_default():
+    # Owner rule: no numeric output cap on an LLM call. The default is None, so max_tokens is omitted and the model decides.
     import inspect
 
-    assert inspect.signature(Benchmark.preflight).parameters["max_tokens"].default >= 512
+    assert inspect.signature(Benchmark.preflight).parameters["max_tokens"].default is None
