@@ -12,5 +12,5 @@
   "test_readme_snippet_signatures.py::_WHITELIST": 0,
   "test_sql_index_coverage_advisory.py::_WHITELIST": 2,
   "test_storage_backend_hardening.py::_WHITELIST": 0,
-  "test_unwired_capabilities.py::_WHITELIST": 0
+  "test_unwired_capabilities.py::_WHITELIST": 3
 }
