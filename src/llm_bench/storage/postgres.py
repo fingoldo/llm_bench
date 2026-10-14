@@ -298,6 +298,7 @@ class PostgresStorage:
             if self._pool is not None:
                 return
             import asyncpg
+
             try:
                 pool = await asyncpg.create_pool(
                     dsn=self._url,
@@ -355,7 +356,10 @@ class PostgresStorage:
     # ── prompt dedup ──────────────────────────────────────────────
 
     async def upsert_prompts(
-        self, *, system_text: str, user_text: str,
+        self,
+        *,
+        system_text: str,
+        user_text: str,
     ) -> tuple[str, str, str]:
         sys_h, usr_h, comp_h = prompt_hashes(system_text, user_text)
         pool = self._require_pool()
@@ -365,20 +369,24 @@ class PostgresStorage:
                     f"INSERT INTO {self._schema}.benchmark_system_prompts "  # nosec B608
                     f"(hash, prompt_text) VALUES ($1, $2) "
                     f"ON CONFLICT (hash) DO NOTHING",
-                    sys_h, system_text,
+                    sys_h,
+                    system_text,
                 )
                 await conn.execute(
                     f"INSERT INTO {self._schema}.benchmark_user_prompts "  # nosec B608
                     f"(hash, prompt_text) VALUES ($1, $2) "
                     f"ON CONFLICT (hash) DO NOTHING",
-                    usr_h, user_text,
+                    usr_h,
+                    user_text,
                 )
                 await conn.execute(
                     f"INSERT INTO {self._schema}.benchmark_prompts "  # nosec B608
                     f"(composite_hash, system_hash, user_hash) "
                     f"VALUES ($1, $2, $3) "
                     f"ON CONFLICT (composite_hash) DO NOTHING",
-                    comp_h, sys_h, usr_h,
+                    comp_h,
+                    sys_h,
+                    usr_h,
                 )
         return sys_h, usr_h, comp_h
 
@@ -414,22 +422,41 @@ class PostgresStorage:
                 f"AND {self._schema}.benchmark_results.error_class <> '') "  # nosec B608
                 f"OR ({self._schema}.benchmark_results.parse_failure_prefix IS NOT NULL "  # nosec B608
                 f"AND {self._schema}.benchmark_results.parse_failure_prefix <> '')",  # nosec B608
-                row.composite_hash, row.provider, row.model, row.thinking,
-                row.stage, row.task_unit_id, row.stratum, row.lang,
-                row.parent_prompt_hash, row.experiment_tag, row.response,
-                row.error_class, row.error_message,
-                row.cost_usd, row.effective_cost_usd,
-                row.input_tokens, row.output_tokens, row.reasoning_tokens,
-                row.cache_hit_tokens, row.cache_write_tokens,
-                row.cache_discount_usd, row.is_byok,
+                row.composite_hash,
+                row.provider,
+                row.model,
+                row.thinking,
+                row.stage,
+                row.task_unit_id,
+                row.stratum,
+                row.lang,
+                row.parent_prompt_hash,
+                row.experiment_tag,
+                row.response,
+                row.error_class,
+                row.error_message,
+                row.cost_usd,
+                row.effective_cost_usd,
+                row.input_tokens,
+                row.output_tokens,
+                row.reasoning_tokens,
+                row.cache_hit_tokens,
+                row.cache_write_tokens,
+                row.cache_discount_usd,
+                row.is_byok,
                 _to_json(row.web_search_citations),
-                row.upstream_resolved_model, row.upstream_provider,
-                row.upstream_model, row.native_finish_reason,
-                row.generation_id, row.mean_attempt_duration_sec,
+                row.upstream_resolved_model,
+                row.upstream_provider,
+                row.upstream_model,
+                row.native_finish_reason,
+                row.generation_id,
+                row.mean_attempt_duration_sec,
                 row.n_attempts,
                 _to_json(row.http_status_sequence),
                 _to_json(row.per_attempt_durations_sec),
-                row.logs, row.logs_compressed, row.parse_failure_prefix,
+                row.logs,
+                row.logs_compressed,
+                row.parse_failure_prefix,
                 _to_json(row.generation_details),
                 ts,
             )
@@ -438,7 +465,10 @@ class PostgresStorage:
     # ── resume cache ──────────────────────────────────────────────
 
     async def prefetch_resume_cache(
-        self, *, only_successful: bool = True, min_response_len: int = MIN_USABLE_RESPONSE_LEN,
+        self,
+        *,
+        only_successful: bool = True,
+        min_response_len: int = MIN_USABLE_RESPONSE_LEN,
     ) -> dict[tuple[str, str, str, str], CachedResponse]:
         pool = self._require_pool()
         out: dict[tuple[str, str, str, str], CachedResponse] = {}
@@ -479,7 +509,12 @@ class PostgresStorage:
         return out
 
     async def get_cached(
-        self, *, composite_hash: str, provider: str, model: str, thinking: str,
+        self,
+        *,
+        composite_hash: str,
+        provider: str,
+        model: str,
+        thinking: str,
     ) -> CachedResponse | None:
         pool = self._require_pool()
         async with pool.acquire() as conn:
@@ -490,25 +525,33 @@ class PostgresStorage:
                 f"FROM {self._schema}.benchmark_results "
                 f"WHERE composite_hash=$1 AND provider=$2 AND model=$3 "
                 f"AND thinking=$4",
-                composite_hash, provider, model, thinking,
+                composite_hash,
+                provider,
+                model,
+                thinking,
             )
         if r is None:
             return None
         if not is_row_usable(response=r["response"], error_class=r["error_class"], parse_failure_prefix=r["parse_failure_prefix"]):
             return None
         return CachedResponse(
-            composite_hash=composite_hash, response=r["response"],
+            composite_hash=composite_hash,
+            response=r["response"],
             input_tokens=r["input_tokens"] or 0,
             output_tokens=r["output_tokens"] or 0,
             reasoning_tokens=r["reasoning_tokens"] or 0,
             cost_usd=float(r["cost_usd"] or 0.0),
-            thinking=thinking, source_tag=r["experiment_tag"],
+            thinking=thinking,
+            source_tag=r["experiment_tag"],
         )
 
     # ── analytics ─────────────────────────────────────────────────
 
     async def query_rows(
-        self, *, experiment_tag: ExperimentTag, stage: str | None = None,
+        self,
+        *,
+        experiment_tag: ExperimentTag,
+        stage: str | None = None,
     ) -> AsyncIterator[RunRow]:
         pool = self._require_pool()
         sql = (
@@ -525,7 +568,9 @@ class PostgresStorage:
                     yield _record_to_row(r)
 
     async def query_spend_total(
-        self, *, experiment_tag: ExperimentTag,
+        self,
+        *,
+        experiment_tag: ExperimentTag,
     ) -> float:
         pool = self._require_pool()
         async with pool.acquire() as conn:
@@ -538,7 +583,9 @@ class PostgresStorage:
         return float(v or 0.0)
 
     async def query_spend_by_stage(
-        self, *, experiment_tag: ExperimentTag,
+        self,
+        *,
+        experiment_tag: ExperimentTag,
     ) -> dict[str, float]:
         pool = self._require_pool()
         out: dict[str, float] = {}
@@ -554,9 +601,12 @@ class PostgresStorage:
         return out
 
     async def query_spend_by_op(
-        self, *, experiment_tag: ExperimentTag,
+        self,
+        *,
+        experiment_tag: ExperimentTag,
     ) -> dict[str, float]:
         from llm_bench.storage.memory import _stage_to_op
+
         by_stage = await self.query_spend_by_stage(experiment_tag=experiment_tag)
         out: dict[str, float] = defaultdict(float)
         for stage, spent in by_stage.items():
@@ -566,7 +616,10 @@ class PostgresStorage:
     # ── per-stage winners ─────────────────────────────────────────
 
     async def persist_winners(
-        self, *, experiment_tag: ExperimentTag, round_idx: int,
+        self,
+        *,
+        experiment_tag: ExperimentTag,
+        round_idx: int,
         winners: WinnerSet,
     ) -> None:
         pool = self._require_pool()
@@ -584,18 +637,24 @@ class PostgresStorage:
                 f"(experiment_tag, round_idx, payload) VALUES ($1, $2, $3) "
                 f"ON CONFLICT (experiment_tag, round_idx) DO UPDATE "
                 f"SET payload=EXCLUDED.payload, ts=NOW()",
-                experiment_tag, round_idx, json.dumps(payload),
+                experiment_tag,
+                round_idx,
+                json.dumps(payload),
             )
 
     async def load_winners(
-        self, *, experiment_tag: ExperimentTag, round_idx: int,
+        self,
+        *,
+        experiment_tag: ExperimentTag,
+        round_idx: int,
     ) -> WinnerSet | None:
         pool = self._require_pool()
         async with pool.acquire() as conn:
             r = await conn.fetchrow(
                 f"SELECT payload FROM {self._schema}.benchmark_winners "  # nosec B608
                 f"WHERE experiment_tag=$1 AND round_idx=$2",
-                experiment_tag, round_idx,
+                experiment_tag,
+                round_idx,
             )
         if r is None:
             return None
@@ -614,7 +673,9 @@ class PostgresStorage:
     # ── admin ─────────────────────────────────────────────────────
 
     async def delete_experiment(
-        self, *, experiment_tag: ExperimentTag,
+        self,
+        *,
+        experiment_tag: ExperimentTag,
     ) -> int:
         pool = self._require_pool()
         async with pool.acquire() as conn:
@@ -641,6 +702,7 @@ class PostgresStorage:
 # Helpers
 # ──────────────────────────────────────────────────────────────────────
 
+
 def _to_json(value: Any) -> str | None:
     """asyncpg accepts JSONB as a text-encoded JSON string."""
     if value is None:
@@ -655,12 +717,14 @@ def _record_to_row(r: Any) -> RunRow:
     asyncpg jsonb codec is registered; stringly-typed when not. Handle
     both shapes defensively.
     """
+
     def _maybe_json(v):
         if v is None or not isinstance(v, str):
             return v
         try:
             return json.loads(v)
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as exc:
+            logger.debug("_maybe_json: value is not JSON, keeping the raw text (%s)", type(exc).__name__)
             return v
 
     return RunRow(

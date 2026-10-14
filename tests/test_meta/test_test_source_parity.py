@@ -60,11 +60,14 @@ from __future__ import annotations
 
 import ast
 import json
+import logging
 import sys
 from collections.abc import Iterable
 from pathlib import Path
 
 import pytest
+
+logger = logging.getLogger(__name__)
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SRC_ROOT = _REPO_ROOT / "src" / "llm_bench"
@@ -95,7 +98,8 @@ _REVERSE_REFRESH_FLAG = "--refresh-test-source-parity-reverse-baseline"
 def _parse(path: Path) -> ast.Module | None:
     try:
         return ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    except (SyntaxError, OSError, UnicodeDecodeError):
+    except (SyntaxError, OSError, UnicodeDecodeError) as exc:
+        logger.debug("test source parity: cannot read or parse %s (%s)", path.name, type(exc).__name__)
         return None
 
 
@@ -310,7 +314,9 @@ def _check_against_baseline(current: list[str], baseline_path: Path, refresh_fla
 
     if refresh_flag in sys.argv or not baseline_path.exists():
         baseline_path.write_text(json.dumps(sorted(current_set), indent=2), encoding="utf-8")
-        pytest.skip(f"{description} baseline refreshed at {baseline_path.name} ({len(current_set)} existing entr{'y' if len(current_set) == 1 else 'ies'}). Re-run without the refresh flag to verify.")
+        pytest.skip(
+            f"{description} baseline refreshed at {baseline_path.name} ({len(current_set)} existing entr{'y' if len(current_set) == 1 else 'ies'}). Re-run without the refresh flag to verify."
+        )
         return
 
     baseline = set(json.loads(baseline_path.read_text(encoding="utf-8")))

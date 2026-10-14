@@ -52,10 +52,13 @@ can triage them. A confirmed non-issue gets a one-line comment in
 from __future__ import annotations
 
 import ast
+import logging
 import re
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 _STORAGE_ROOT = Path(__file__).resolve().parents[2] / "src" / "llm_bench" / "storage"
 _POSTGRES_PATH = _STORAGE_ROOT / "postgres.py"
@@ -238,6 +241,7 @@ def scan_sql_index_coverage(path: Path) -> list[str]:
     try:
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     except SyntaxError as e:
+        logger.debug("SQL index scan: cannot parse %s (%s)", path.name, type(e).__name__)
         return [f"{path.name}: SyntaxError: {e}"]
 
     parents = _parent_map(tree)

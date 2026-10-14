@@ -76,6 +76,7 @@ CREATE TABLE IF NOT EXISTS prompts_index (
 
 _LOCK_RETRY_ATTEMPTS = 3
 _LOCK_RETRY_BASE_DELAY_SEC = 0.1
+_LOCK_RETRY_BACKOFF_FACTOR = 2
 
 
 class FileStorage:
@@ -135,16 +136,25 @@ class FileStorage:
             self.root.mkdir(parents=True, exist_ok=True)
             index_dir = self.root / "_index"
             index_dir.mkdir(exist_ok=True)
-            self._db = await aiosqlite.connect(index_dir / "resume_cache.sqlite")
-            await self._db.execute("PRAGMA journal_mode=WAL;")
-            # Tell SQLite to internally wait (not fail immediately) when
-            # a write hits a lock held by another process/connection —
-            # the actual mechanism the module docstring's old "OS-locked
-            # via WAL" claim was missing (audit: 04-High).
-            await self._db.execute("PRAGMA busy_timeout=5000;")
-            await self._db.executescript(_INDEX_DDL)
-            await self._db.commit()
-            self._initialized = True
+        # The connection is opened and prepared outside the lock so that no
+        # other caller waits on the database I/O. The lock only publishes it.
+        db = await aiosqlite.connect(index_dir / "resume_cache.sqlite")
+        # Tell SQLite to internally wait (not fail immediately) when
+        # a write hits a lock held by another process/connection —
+        # the actual mechanism the module docstring's old "OS-locked
+        # via WAL" claim was missing (audit: 04-High).
+        await db.execute("PRAGMA journal_mode=WAL;")
+        await db.execute("PRAGMA busy_timeout=5000;")
+        await db.executescript(_INDEX_DDL)
+        await db.commit()
+        async with self._lock:
+            published = not self._initialized
+            if published:
+                self._db = db
+                self._initialized = True
+        if not published:
+            # A concurrent caller published first; drop the duplicate connection.
+            await db.close()
 
     async def close(self) -> None:
         # Takes the lock (unlike the rest of this method previously)
@@ -213,12 +223,15 @@ class FileStorage:
             except sqlite3.OperationalError as exc:
                 if "database is locked" not in str(exc).lower() or attempt == _LOCK_RETRY_ATTEMPTS - 1:
                     raise
-                await asyncio.sleep(_LOCK_RETRY_BASE_DELAY_SEC * (2**attempt))
+                await asyncio.sleep(_LOCK_RETRY_BASE_DELAY_SEC * (_LOCK_RETRY_BACKOFF_FACTOR**attempt))
 
     # ── prompt dedup ──────────────────────────────────────────────
 
     async def upsert_prompts(
-        self, *, system_text: str, user_text: str,
+        self,
+        *,
+        system_text: str,
+        user_text: str,
     ) -> tuple[str, str, str]:
         sys_h, usr_h, comp_h = prompt_hashes(system_text, user_text)
         # Prompts are persisted PER experiment-tag. We don't know the
@@ -310,12 +323,17 @@ class FileStorage:
                     " cost_usd, error_class, source_tag) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
-                        row.composite_hash, row.provider, row.model,
-                        row.thinking, row.response,
-                        row.input_tokens or 0, row.output_tokens or 0,
+                        row.composite_hash,
+                        row.provider,
+                        row.model,
+                        row.thinking,
+                        row.response,
+                        row.input_tokens or 0,
+                        row.output_tokens or 0,
                         row.reasoning_tokens or 0,
                         row.cost_usd or 0.0,
-                        row.error_class, row.experiment_tag,
+                        row.error_class,
+                        row.experiment_tag,
                     ),
                 )
                 await self._db.commit()
@@ -324,7 +342,10 @@ class FileStorage:
     # ── resume cache ──────────────────────────────────────────────
 
     async def prefetch_resume_cache(
-        self, *, only_successful: bool = True, min_response_len: int = MIN_USABLE_RESPONSE_LEN,
+        self,
+        *,
+        only_successful: bool = True,
+        min_response_len: int = MIN_USABLE_RESPONSE_LEN,
     ) -> dict[tuple[str, str, str, str], CachedResponse]:
         await self.initialize()
         out: dict[tuple[str, str, str, str], CachedResponse] = {}
@@ -347,16 +368,25 @@ class FileStorage:
                 elif resp is None or len(resp) < min_response_len:
                     continue
                 out[(ch, pv, md, th)] = CachedResponse(
-                    composite_hash=ch, response=resp,
-                    input_tokens=in_t or 0, output_tokens=out_t or 0,
-                    reasoning_tokens=rsn_t or 0, cost_usd=cost or 0.0,
-                    thinking=th, source_tag=src,
+                    composite_hash=ch,
+                    response=resp,
+                    input_tokens=in_t or 0,
+                    output_tokens=out_t or 0,
+                    reasoning_tokens=rsn_t or 0,
+                    cost_usd=cost or 0.0,
+                    thinking=th,
+                    source_tag=src,
                 )
             await cur.close()
         return out
 
     async def get_cached(
-        self, *, composite_hash: str, provider: str, model: str, thinking: str,
+        self,
+        *,
+        composite_hash: str,
+        provider: str,
+        model: str,
+        thinking: str,
     ) -> CachedResponse | None:
         await self.initialize()
         assert self._db is not None
@@ -376,16 +406,23 @@ class FileStorage:
         if not is_row_usable(response=resp, error_class=err):
             return None
         return CachedResponse(
-            composite_hash=composite_hash, response=resp,
-            input_tokens=in_t or 0, output_tokens=out_t or 0,
-            reasoning_tokens=rsn_t or 0, cost_usd=cost or 0.0,
-            thinking=thinking, source_tag=src,
+            composite_hash=composite_hash,
+            response=resp,
+            input_tokens=in_t or 0,
+            output_tokens=out_t or 0,
+            reasoning_tokens=rsn_t or 0,
+            cost_usd=cost or 0.0,
+            thinking=thinking,
+            source_tag=src,
         )
 
     # ── analytics ─────────────────────────────────────────────────
 
     async def query_rows(
-        self, *, experiment_tag: ExperimentTag, stage: str | None = None,
+        self,
+        *,
+        experiment_tag: ExperimentTag,
+        stage: str | None = None,
     ) -> AsyncIterator[RunRow]:
         tag_dir = self._tag_dir(str(experiment_tag))
         results_path = tag_dir / "results.jsonl"
@@ -427,7 +464,8 @@ class FileStorage:
                             continue
                         key = (row.composite_hash, row.provider, row.model, row.thinking)
                         by_key[key] = row
-            except FileNotFoundError:
+            except FileNotFoundError as exc:
+                logger.debug("query_rows: results file not found, returning no rows (%s)", type(exc).__name__)
                 return []
             return list(by_key.values())
 
@@ -445,7 +483,9 @@ class FileStorage:
             yield r
 
     async def query_spend_total(
-        self, *, experiment_tag: ExperimentTag,
+        self,
+        *,
+        experiment_tag: ExperimentTag,
     ) -> float:
         total = 0.0
         async for row in self.query_rows(experiment_tag=experiment_tag):
@@ -465,20 +505,28 @@ class FileStorage:
         return dict(out)
 
     async def query_spend_by_stage(
-        self, *, experiment_tag: ExperimentTag,
+        self,
+        *,
+        experiment_tag: ExperimentTag,
     ) -> dict[str, float]:
         return await self._query_spend_grouped(experiment_tag=experiment_tag, key_fn=lambda row: row.stage)
 
     async def query_spend_by_op(
-        self, *, experiment_tag: ExperimentTag,
+        self,
+        *,
+        experiment_tag: ExperimentTag,
     ) -> dict[str, float]:
         from llm_bench.storage.memory import _stage_to_op
+
         return await self._query_spend_grouped(experiment_tag=experiment_tag, key_fn=lambda row: _stage_to_op(row.stage))
 
     # ── per-stage winners ─────────────────────────────────────────
 
     async def persist_winners(
-        self, *, experiment_tag: ExperimentTag, round_idx: int,
+        self,
+        *,
+        experiment_tag: ExperimentTag,
+        round_idx: int,
         winners: WinnerSet,
     ) -> None:
         await self.initialize()
@@ -511,7 +559,10 @@ class FileStorage:
             await asyncio.to_thread(self._write_atomic, path, data)
 
     async def load_winners(
-        self, *, experiment_tag: ExperimentTag, round_idx: int,
+        self,
+        *,
+        experiment_tag: ExperimentTag,
+        round_idx: int,
     ) -> WinnerSet | None:
         tag_dir = self._tag_dir(str(experiment_tag))
         path = tag_dir / "winners" / f"round_{round_idx}.json"
@@ -537,7 +588,9 @@ class FileStorage:
     # ── admin ─────────────────────────────────────────────────────
 
     async def delete_experiment(
-        self, *, experiment_tag: ExperimentTag,
+        self,
+        *,
+        experiment_tag: ExperimentTag,
     ) -> int:
         await self.initialize()
         tag = str(experiment_tag)
@@ -559,6 +612,7 @@ class FileStorage:
         # from under it.
         assert self._db is not None
         import shutil
+
         async with self._lock:
             await self._db_execute_with_retry(
                 "DELETE FROM resume_cache WHERE source_tag=?",
@@ -574,8 +628,10 @@ class FileStorage:
 # Row <-> dict helpers
 # ──────────────────────────────────────────────────────────────────────
 
+
 def _stamp_ts(row: RunRow) -> RunRow:
     from dataclasses import replace
+
     return replace(row, ts=datetime.now(UTC))
 
 
@@ -586,6 +642,7 @@ def _row_to_dict(row: RunRow) -> dict[str, Any]:
     # bytes (logs_compressed) doesn't JSON-serialise; encode as base64.
     if d.get("logs_compressed") is not None:
         import base64
+
         d["logs_compressed"] = base64.b64encode(d["logs_compressed"]).decode("ascii")
     return d
 
@@ -598,5 +655,6 @@ def _dict_to_row(d: dict[str, Any]) -> RunRow:
             d = {**d, "ts": None}
     if isinstance(d.get("logs_compressed"), str):
         import base64
+
         d = {**d, "logs_compressed": base64.b64decode(d["logs_compressed"])}
     return RunRow(**d)

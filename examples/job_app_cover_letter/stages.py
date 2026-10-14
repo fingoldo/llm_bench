@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 # Prompt builders
 # ──────────────────────────────────────────────────────────────────────
 
+
 def build_research_prompt(*, task_unit, ctx, lang=None):
     md = task_unit.metadata
     skills = ", ".join(md.get("required_skills") or []) or "(none listed)"
@@ -106,6 +107,7 @@ def build_validate_draft_prompt(*, task_unit, ctx, lang=None):
 # Response parsers - permissive JSON parse with fallback
 # ──────────────────────────────────────────────────────────────────────
 
+
 def _parse_json_loose(response_text: str | None) -> Any:
     if not response_text:
         return None
@@ -124,7 +126,8 @@ def _parse_json_loose(response_text: str | None) -> Any:
         if first >= 0 and last > first:
             try:
                 return json.loads(text[first : last + 1])
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as exc:
+                logger.warning("_parse_json_loose: no JSON object in the text, returning None (%s)", type(exc).__name__)
                 return None
     return None
 
@@ -177,42 +180,51 @@ def parse_validate(*, task_unit, response_text, input_tokens, output_tokens):
 # StageGraph factory
 # ──────────────────────────────────────────────────────────────────────
 
+
 def build_job_app_stage_graph() -> StageGraph:
     """Build the 4-stage JobApp pipeline (research -> draft -> polish + validator)."""
-    return StageGraph([
-        Stage(
-            id="research", op="research",
-            prompt_builder=build_research_prompt,
-            parser=parse_research,
-            budget_per_call=0.05,
-        ),
-        Stage(
-            id="draft", op="draft",
-            parent_stage="research",
-            prompt_builder=build_draft_prompt,
-            parser=parse_draft,
-            budget_per_call=0.10,
-        ),
-        Stage(
-            id="polish", op="polish",
-            parent_stage="draft",
-            prompt_builder=build_polish_prompt,
-            parser=parse_polish,
-            budget_per_call=0.05,
-        ),
-        Stage(
-            id="validate_draft", op="validate_draft",
-            parent_stage="draft", is_validator=True,
-            prompt_builder=build_validate_draft_prompt,
-            parser=parse_validate,
-            budget_per_call=0.05,
-        ),
-    ])
+    return StageGraph(
+        [
+            Stage(
+                id="research",
+                op="research",
+                prompt_builder=build_research_prompt,
+                parser=parse_research,
+                budget_per_call=0.05,
+            ),
+            Stage(
+                id="draft",
+                op="draft",
+                parent_stage="research",
+                prompt_builder=build_draft_prompt,
+                parser=parse_draft,
+                budget_per_call=0.10,
+            ),
+            Stage(
+                id="polish",
+                op="polish",
+                parent_stage="draft",
+                prompt_builder=build_polish_prompt,
+                parser=parse_polish,
+                budget_per_call=0.05,
+            ),
+            Stage(
+                id="validate_draft",
+                op="validate_draft",
+                parent_stage="draft",
+                is_validator=True,
+                prompt_builder=build_validate_draft_prompt,
+                parser=parse_validate,
+                budget_per_call=0.05,
+            ),
+        ]
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────
 # Custom RowScorer - validate_draft rows produce continuous scores
 # ──────────────────────────────────────────────────────────────────────
+
 
 def job_app_row_scorer(row) -> float:
     """Score: validate_draft -> mean of intent_match/skill_coverage/tone;
@@ -237,7 +249,8 @@ def job_app_row_scorer(row) -> float:
                 float(parsed.get("skill_coverage") or 0.0),
                 float(parsed.get("tone") or 0.0),
             ]
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as exc:
+            logger.warning("job_app_row_scorer: validate_draft scores are not numeric, scoring 0.0 (%s)", type(exc).__name__)
             return 0.0
         if not scores:
             return 0.0

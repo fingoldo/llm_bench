@@ -45,10 +45,13 @@ Whitelist a confirmed false positive via ``_WHITELIST`` below, keyed
 from __future__ import annotations
 
 import ast
+import logging
 import re
 from pathlib import Path
 
 import pytest
+
+logger = logging.getLogger(__name__)
 
 _STORAGE_ROOT = Path(__file__).resolve().parents[2] / "src" / "llm_bench" / "storage"
 _POSTGRES_PATH = _STORAGE_ROOT / "postgres.py"
@@ -61,6 +64,7 @@ _WHITELIST: set[str] = set()
 # ------------------------------------------------------------------------
 # Shared AST helpers
 # ------------------------------------------------------------------------
+
 
 def _parse(path: Path) -> ast.AST | None:
     """Return the parsed tree, or None (caller reports the SyntaxError)."""
@@ -102,6 +106,7 @@ def _find_method(tree: ast.AST, name: str) -> list[ast.FunctionDef | ast.AsyncFu
 # Check 1: schema_name identifier validation
 # ------------------------------------------------------------------------
 
+
 def scan_schema_name_validation(path: Path) -> list[str]:
     """Every ``__init__`` accepting a ``schema_name`` parameter must
     validate it (fullmatch/match/isidentifier referencing the parameter)
@@ -110,6 +115,7 @@ def scan_schema_name_validation(path: Path) -> list[str]:
     try:
         tree = _parse(path)
     except SyntaxError as e:
+        logger.debug("storage hardening scan: cannot parse %s (%s)", path.name, type(e).__name__)
         return [f"{path.name}: SyntaxError: {e}"]
     assert tree is not None
 
@@ -150,6 +156,7 @@ def scan_schema_name_validation(path: Path) -> list[str]:
 # Check 2: experiment_tag path-traversal guard
 # ------------------------------------------------------------------------
 
+
 def scan_experiment_tag_guard(path: Path) -> list[str]:
     """Every ``self.root / <variable>`` join must occur inside a function
     that also calls a ``validate*tag``-shaped helper AND an
@@ -159,6 +166,7 @@ def scan_experiment_tag_guard(path: Path) -> list[str]:
     try:
         tree = _parse(path)
     except SyntaxError as e:
+        logger.debug("storage hardening scan: cannot parse %s (%s)", path.name, type(e).__name__)
         return [f"{path.name}: SyntaxError: {e}"]
     assert tree is not None
 
@@ -215,6 +223,7 @@ def scan_experiment_tag_guard(path: Path) -> list[str]:
 # Check 3: record_call() upserts (DO UPDATE, never DO NOTHING)
 # ------------------------------------------------------------------------
 
+
 def scan_record_call_upsert(path: Path) -> list[str]:
     """record_call()'s INSERT ... ON CONFLICT for benchmark_results must
     resolve to DO UPDATE, never DO NOTHING -- DO NOTHING silently drops a
@@ -222,6 +231,7 @@ def scan_record_call_upsert(path: Path) -> list[str]:
     try:
         tree = _parse(path)
     except SyntaxError as e:
+        logger.debug("storage hardening scan: cannot parse %s (%s)", path.name, type(e).__name__)
         return [f"{path.name}: SyntaxError: {e}"]
     assert tree is not None
 
@@ -275,6 +285,7 @@ def scan_record_call_upsert(path: Path) -> list[str]:
 # Check 4: asyncpg.create_pool(...) sets command_timeout
 # ------------------------------------------------------------------------
 
+
 def scan_command_timeout(path: Path) -> list[str]:
     """asyncpg.create_pool(...) must set command_timeout -- otherwise a
     single hung query can exhaust the whole connection pool with no
@@ -282,6 +293,7 @@ def scan_command_timeout(path: Path) -> list[str]:
     try:
         tree = _parse(path)
     except SyntaxError as e:
+        logger.debug("storage hardening scan: cannot parse %s (%s)", path.name, type(e).__name__)
         return [f"{path.name}: SyntaxError: {e}"]
     assert tree is not None
 
@@ -311,6 +323,7 @@ def scan_command_timeout(path: Path) -> list[str]:
 # Check 5: resume-cache / tag+stage index coverage in the DDL
 # ------------------------------------------------------------------------
 
+
 def scan_resume_cache_index(path: Path) -> list[str]:
     """The ``_ddl()`` function must declare an index actually covering
     prefetch_resume_cache()'s hot-path WHERE clause (response IS NOT
@@ -321,6 +334,7 @@ def scan_resume_cache_index(path: Path) -> list[str]:
     try:
         tree = _parse(path)
     except SyntaxError as e:
+        logger.debug("storage hardening scan: cannot parse %s (%s)", path.name, type(e).__name__)
         return [f"{path.name}: SyntaxError: {e}"]
     assert tree is not None
 
@@ -362,6 +376,7 @@ def scan_resume_cache_index(path: Path) -> list[str]:
 # ------------------------------------------------------------------------
 # Check 6: transaction-wrap consistency
 # ------------------------------------------------------------------------
+
 
 def _enclosing_transaction_with(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> ast.AsyncWith | None:
     """Walk ``node``'s ancestors for the nearest ``async with
@@ -454,6 +469,7 @@ def scan_transaction_wrap(path: Path) -> list[str]:
     try:
         tree = _parse(path)
     except SyntaxError as e:
+        logger.debug("storage hardening scan: cannot parse %s (%s)", path.name, type(e).__name__)
         return [f"{path.name}: SyntaxError: {e}"]
     assert tree is not None
 
@@ -467,6 +483,7 @@ def scan_transaction_wrap(path: Path) -> list[str]:
 # ------------------------------------------------------------------------
 # Tests against the real files
 # ------------------------------------------------------------------------
+
 
 def test_schema_name_validation_enforced():
     violations = scan_schema_name_validation(_POSTGRES_PATH)
@@ -513,6 +530,7 @@ def test_transaction_wrap_consistency():
 # ------------------------------------------------------------------------
 # Regression tests for the checkers themselves (synthetic source, tmp_path)
 # ------------------------------------------------------------------------
+
 
 class TestSchemaNameValidationDetectsShapes:
     def _run(self, tmp_path, source: str) -> list[str]:
@@ -690,11 +708,11 @@ class TestResumeCacheIndexDetectsShapes:
             "    s = schema\n"
             "    return [\n"
             "        f'CREATE INDEX IF NOT EXISTS idx_tag_stage ON {s}.benchmark_results (experiment_tag, stage);',\n"
-            "        \"\"\"\n"
+            '        """\n'
             "        CREATE INDEX IF NOT EXISTS idx_resume_cache\n"
             "            ON benchmark_results (composite_hash)\n"
             "            WHERE response IS NOT NULL AND (error_class IS NULL OR error_class = '');\n"
-            "        \"\"\",\n"
+            '        """,\n'
             "    ]\n"
         )
         violations = self._run(tmp_path, source)

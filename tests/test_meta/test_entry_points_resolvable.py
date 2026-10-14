@@ -21,11 +21,14 @@ so this is a hard assert-empty.
 from __future__ import annotations
 
 import importlib
+import logging
 import sys
 import tomllib
 from pathlib import Path
 
 import pytest
+
+logger = logging.getLogger(__name__)
 
 _PYPROJECT_PATH = Path(__file__).resolve().parents[2] / "pyproject.toml"
 
@@ -56,6 +59,7 @@ def _check_entry_point(qualified_name: str, target: str) -> str | None:
     try:
         obj: object = importlib.import_module(module_name)
     except Exception as e:
+        logger.debug("entry point %s: import failed (%s)", qualified_name, type(e).__name__)
         return f"{qualified_name} = {target!r}: import_module({module_name!r}) raised " f"{type(e).__name__}: {e}"
     # Support a dotted attr path (e.g. "module:Class.method"), not just a
     # single top-level name, since that's a valid entry-point shape too.
@@ -65,6 +69,7 @@ def _check_entry_point(qualified_name: str, target: str) -> str | None:
             if obj is _MISSING:
                 return f"{qualified_name} = {target!r}: {module_name!r} has no attribute " f"path {attr_path!r} (missing at {part!r})."
     except Exception as e:
+        logger.debug("entry point %s: attribute access failed (%s)", qualified_name, type(e).__name__)
         # 3-arg getattr only swallows AttributeError; a module/object with a
         # __getattr__ (PEP 562 lazy-import shims, deprecation stubs, etc.)
         # can raise anything else during attribute resolution. Must be

@@ -35,11 +35,14 @@ from __future__ import annotations
 
 import ast
 import json
+import logging
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+
+logger = logging.getLogger(__name__)
 
 _SRC_ROOT = Path(__file__).resolve().parents[2] / "src" / "llm_bench"
 _BASELINE_PATH = Path(__file__).resolve().parent / "_duplicate_magic_literals_baseline.json"
@@ -175,7 +178,8 @@ def _collect_occurrences(path: Path, rel: str) -> list[_Occurrence]:
     src = path.read_text(encoding="utf-8")
     try:
         tree = ast.parse(src, filename=str(path))
-    except SyntaxError:
+    except SyntaxError as exc:
+        logger.debug("magic literal scan: cannot parse %s (%s)", path.name, type(exc).__name__)
         return []  # a syntax-error scan is another check's job, not this one's
 
     out: list[_Occurrence] = []

@@ -50,6 +50,7 @@ comment isn't practical, review the finding and refresh:
 from __future__ import annotations
 
 import ast
+import logging
 import re
 import sys
 from dataclasses import dataclass
@@ -57,6 +58,8 @@ from pathlib import Path
 
 import orjson
 import pytest
+
+logger = logging.getLogger(__name__)
 
 _STORAGE_ROOT = Path(__file__).resolve().parents[2] / "src" / "llm_bench" / "storage"
 _BASELINE_PATH = Path(__file__).resolve().parent / "_sql_on_conflict_baseline.json"
@@ -246,9 +249,14 @@ def scan_on_conflict_consistency(path: Path) -> list[OnConflictFinding]:
         src = path.read_text(encoding="utf-8")
         tree = ast.parse(src, filename=str(path))
     except SyntaxError as e:
+        logger.debug("ON CONFLICT scan: cannot parse %s (%s)", path.name, type(e).__name__)
         return [
             OnConflictFinding(
-                file=path.name, line=0, table="", peer_table="", arity=0,
+                file=path.name,
+                line=0,
+                table="",
+                peer_table="",
+                arity=0,
                 detail=f"{path.name}: SyntaxError: {e}",
             ),
         ]
@@ -273,7 +281,11 @@ def scan_on_conflict_consistency(path: Path) -> list[OnConflictFinding]:
             continue
         findings.append(
             OnConflictFinding(
-                file=path.name, line=s.lineno, table=s.table, peer_table=peer.table, arity=len(s.cols),
+                file=path.name,
+                line=s.lineno,
+                table=s.table,
+                peer_table=peer.table,
+                arity=len(s.cols),
                 detail=(
                     f"{path.name}:{s.lineno}: INSERT INTO {s.table} ON CONFLICT "
                     f"({', '.join(s.cols)}, arity {len(s.cols)}) DO NOTHING, while "

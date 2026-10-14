@@ -59,9 +59,12 @@ its docstring for the two live examples that motivated narrowing it).
 from __future__ import annotations
 
 import ast
+import logging
 from pathlib import Path
 
 import pytest
+
+logger = logging.getLogger(__name__)
 
 _REPO_TESTS = Path(__file__).resolve().parent.parent  # tests/
 
@@ -202,11 +205,13 @@ def _find_proxy_sites(path: Path) -> list[tuple[int, str, str]]:
     does not touch pytest state, so it is directly unit-testable."""
     try:
         src = path.read_text(encoding="utf-8")
-    except (UnicodeDecodeError, OSError):
+    except (UnicodeDecodeError, OSError) as exc:
+        logger.debug("source text scan: cannot read %s (%s)", path.name, type(exc).__name__)
         return []
     try:
         tree = ast.parse(src, filename=str(path))
-    except SyntaxError:
+    except SyntaxError as exc:
+        logger.debug("source text scan: cannot parse %s (%s)", path.name, type(exc).__name__)
         return []
 
     module_names = _scope_source_names(tree)
@@ -329,7 +334,11 @@ class TestFindProxySitesDetectsShapes:
     def test_getsource_regex_search_detected(self, tmp_path):
         hits = self._run(
             tmp_path,
-            "import re\n" "import inspect\n" "def f(func):\n" "    src = inspect.getsource(func)\n" '    assert re.search(r"self\\.a\\(\\)", src) is not None\n',
+            "import re\n"
+            "import inspect\n"
+            "def f(func):\n"
+            "    src = inspect.getsource(func)\n"
+            '    assert re.search(r"self\\.a\\(\\)", src) is not None\n',
         )
         assert len(hits) == 1
         assert hits[0][1] == "getsource"
@@ -398,7 +407,12 @@ class TestFindProxySitesDetectsShapes:
         # legitimate extract-then-use-for-real of this shape).
         hits = self._run(
             tmp_path,
-            "import re\n" "from pathlib import Path\n" "def f(p):\n" "    text = p.read_text()\n" '    m = re.search(r"version = \\"(.*)\\"", text)\n' "    assert m is not None\n",
+            "import re\n"
+            "from pathlib import Path\n"
+            "def f(p):\n"
+            "    text = p.read_text()\n"
+            '    m = re.search(r"version = \\"(.*)\\"", text)\n'
+            "    assert m is not None\n",
         )
         assert hits == []
 

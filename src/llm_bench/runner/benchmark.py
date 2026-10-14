@@ -43,6 +43,7 @@ class PreflightResult:
     canonical label from ``classify_provider_error`` so callers can act on
     a small enum instead of free-form messages.
     """
+
     model: str
     ok: bool
     error_class: str | None = None
@@ -53,6 +54,7 @@ class PreflightResult:
 @dataclass
 class PhaseReport:
     """Aggregated result of a multi-round ``run_phase`` call."""
+
     experiment_tag: str
     rounds: list[Any] = field(default_factory=list)
     """List of ``RoundResult`` (one per round executed)."""
@@ -84,6 +86,7 @@ class Benchmark:
       ``ResumeCache``. The caller must invoke ``await bench.aclose()`` to
       release storage resources, OR use ``async with Benchmark(...) as b``.
     """
+
     task_pool: TaskPool
     stages: StageGraph
     storage: BenchmarkStorage
@@ -161,6 +164,7 @@ class Benchmark:
         now also treated as ALIVE below, since a route that answered at all is a
         route that works.
         """
+
         # Same default as `_call_llm`'s, rather than refusing: a Benchmark that runs perfectly well without
         # an explicit `provider_factory` (the documented default path) could not use `preflight=True` at
         # all, and the failure landed as a ValueError AFTER `run_phase` had already been entered - so the
@@ -184,24 +188,31 @@ class Benchmark:
                 try:
                     provider = factory(model)
                 except Exception as e:
+                    logger.warning("preflight could not build the provider for %s (%s)", model, type(e).__name__)
                     return PreflightResult(
-                        model=model, ok=False,
+                        model=model,
+                        ok=False,
                         error_class="ProviderFactoryError",
                         error_message=str(e)[:200],
                         latency_sec=time.monotonic() - t0,
                     )
                 try:
                     coro = provider.generate(
-                        prompt=prompt, system=system, max_tokens=max_tokens,
+                        prompt=prompt,
+                        system=system,
+                        max_tokens=max_tokens,
                     )
                     await asyncio.wait_for(coro, timeout=timeout_sec)
                     return PreflightResult(
-                        model=model, ok=True,
+                        model=model,
+                        ok=True,
                         latency_sec=time.monotonic() - t0,
                     )
-                except TimeoutError:
+                except TimeoutError as exc:
+                    logger.warning("preflight timed out for %s (%s)", model, type(exc).__name__)
                     return PreflightResult(
-                        model=model, ok=False,
+                        model=model,
+                        ok=False,
                         error_class="LLMCallTimeout",
                         error_message=f"preflight exceeded {timeout_sec}s",
                         latency_sec=time.monotonic() - t0,
@@ -216,13 +227,15 @@ class Benchmark:
                         # reasoning models whose thinking tokens are billed against the completion budget.
                         # Measured: an 8-model run marked a reasoning model dead on this alone.
                         return PreflightResult(
-                            model=model, ok=True,
+                            model=model,
+                            ok=True,
                             error_class=error_class,
                             error_message=f"answered but truncated at max_tokens={max_tokens}; route is alive - {msg[:150]}",
                             latency_sec=time.monotonic() - t0,
                         )
                     return PreflightResult(
-                        model=model, ok=False,
+                        model=model,
+                        ok=False,
                         error_class=error_class,
                         error_message=msg[:200],
                         latency_sec=time.monotonic() - t0,
@@ -236,7 +249,10 @@ class Benchmark:
             sample = [f"{r.model}: {r.error_class}" for r in results if not r.ok][:5]
             logger.warning(
                 "[preflight] %d/%d candidates failed ping. First %d: %s",
-                n_dead, len(candidates), len(sample), sample,
+                n_dead,
+                len(candidates),
+                len(sample),
+                sample,
             )
         else:
             logger.info("[preflight] all %d candidates ok", len(candidates))
@@ -336,11 +352,13 @@ class Benchmark:
 
         report.final_candidates = current_candidates
         report.final_ranking = await compute_ranking(
-            self.storage, exp_tag,
+            self.storage,
+            exp_tag,
             row_scorer=self.row_scorer,
             gold_checker=self.gold_checker,
             task_unit_lookup=lambda uid: next(
-                (u for u in units if u.id == uid), None,
+                (u for u in units if u.id == uid),
+                None,
             ),
         )
         report.elapsed_sec = time.monotonic() - t0

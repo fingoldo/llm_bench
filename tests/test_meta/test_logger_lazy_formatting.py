@@ -15,9 +15,12 @@ Whitelist via ``# noqa: G004`` comment on the line for legitimate cases
 from __future__ import annotations
 
 import ast
+import logging
 from pathlib import Path
 
 import pytest
+
+logger = logging.getLogger(__name__)
 
 _SRC_ROOT = Path(__file__).resolve().parents[2] / "src" / "llm_bench"
 
@@ -29,6 +32,7 @@ def _audit_file(path: Path, rel: str) -> list[str]:
     try:
         tree = ast.parse(src, filename=str(path))
     except SyntaxError as e:
+        logger.debug("logger formatting scan: cannot parse %s (%s)", rel, type(e).__name__)
         return [f"{rel}: SyntaxError: {e}"]
     lines = src.splitlines()
 

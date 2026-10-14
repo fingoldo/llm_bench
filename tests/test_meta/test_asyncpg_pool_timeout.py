@@ -45,10 +45,13 @@ Whitelist a confirmed false positive via ``_WHITELIST`` below, keyed
 from __future__ import annotations
 
 import ast
+import logging
 import sys
 from pathlib import Path
 
 import pytest
+
+logger = logging.getLogger(__name__)
 
 _SRC_ROOT = Path(__file__).resolve().parents[2] / "src" / "llm_bench"
 
@@ -131,6 +134,7 @@ def scan_asyncpg_timeout_kwargs(path: Path, rel: str) -> list[str]:
     try:
         tree = ast.parse(src, filename=str(path))
     except SyntaxError as e:
+        logger.debug("asyncpg timeout scan: cannot parse %s (%s)", path.name, type(e).__name__)
         return [f"{rel}: SyntaxError: {e}"]
 
     module_aliases, func_aliases = _collect_asyncpg_aliases(tree)

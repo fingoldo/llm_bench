@@ -32,7 +32,8 @@ def _per_token_to_per_m(value: float | int | str | None) -> float | None:
         return None
     try:
         v = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as exc:
+        logger.warning("OpenRouter per-token price is not numeric, leaving it unknown (%s)", type(exc).__name__)
         return None
     if v < 0:
         return None
@@ -48,7 +49,8 @@ def _normalise_uptime(value: float | int | str | None) -> float | None:
         return None
     try:
         v = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as exc:
+        logger.warning("OpenRouter uptime is not numeric, leaving it unknown (%s)", type(exc).__name__)
         return None
     return v / 100.0 if v > 1.0 else v
 

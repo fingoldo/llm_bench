@@ -57,11 +57,14 @@ from __future__ import annotations
 
 import ast
 import json
+import logging
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+
+logger = logging.getLogger(__name__)
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SRC_ROOT = _REPO_ROOT / "src" / "llm_bench"
@@ -102,7 +105,8 @@ def _iter_py_files(root: Path) -> list[Path]:
 def _parse(path: Path) -> ast.Module | None:
     try:
         return ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    except SyntaxError:
+    except SyntaxError as exc:
+        logger.debug("unwired capabilities scan: cannot parse %s (%s)", path.name, type(exc).__name__)
         return None
 
 

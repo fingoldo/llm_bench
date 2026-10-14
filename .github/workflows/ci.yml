@@ -116,7 +116,8 @@ jobs:
       # same pinned py-ci-shared the dev extra and the black step install, so config and gate code are one version.
       - name: Resolve PY_CI_SHARED_DIR
         run: |
-          uv pip install --system "py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@8c19f17a4537e66db1c86245502fc6883791d632"  # v1.22.5
+          # py-ci-shared master, version 1.22.12
+          uv pip install --system "py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@641677acf514f095914711fc5d5c258c3ca38ada"
           d=$(dirname "$(dirname "$(py-ci-shared config-path ruff-base)")")
           echo "PY_CI_SHARED_DIR=$d" >> "$GITHUB_ENV"
 
@@ -249,7 +250,7 @@ jobs:
     name: lint + security (shared, blocking)
     permissions:
       contents: read
-    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@8c19f17a4537e66db1c86245502fc6883791d632  # v1.22.5
+    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@641677acf514f095914711fc5d5c258c3ca38ada  # master, version 1.22.12
     with:
       source-path: src/llm_bench
       codespell-paths: src/llm_bench README.md

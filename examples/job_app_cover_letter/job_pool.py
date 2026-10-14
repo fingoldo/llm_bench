@@ -34,6 +34,7 @@ class JobPool:
     commas and dropped into metadata as a list. ``industry`` is the
     stratum.
     """
+
     jobs_csv: str | Path
 
     _units: list[TaskUnit] | None = None
@@ -58,11 +59,13 @@ class JobPool:
                     "required_skills": [s.strip() for s in row.get("required_skills", "").split(",") if s.strip()],
                     "budget_usd": _parse_float(row.get("budget_usd")),
                 }
-                units.append(TaskUnit(
-                    id=jid,
-                    metadata=metadata,
-                    stratum=row.get("industry", "").strip() or None,
-                ))
+                units.append(
+                    TaskUnit(
+                        id=jid,
+                        metadata=metadata,
+                        stratum=row.get("industry", "").strip() or None,
+                    )
+                )
         logger.info("[job_app] loaded %d jobs from %s", len(units), path)
         self._units = units
         return units
@@ -79,5 +82,6 @@ def _parse_float(s: str | None) -> float | None:
         return None
     try:
         return float(s)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as exc:
+        logger.debug("_parse_float: not a number, returning None (%s)", type(exc).__name__)
         return None

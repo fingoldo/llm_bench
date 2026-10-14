@@ -60,12 +60,15 @@ from __future__ import annotations
 
 import ast
 import json
+import logging
 import os
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+
+logger = logging.getLogger(__name__)
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SRC_ROOT = _REPO_ROOT / "src" / "llm_bench"
@@ -252,7 +255,8 @@ def _attempt_coverage_run(tmp_path: Path) -> tuple[Path | None, str, bool]:
     subprocess_env = {**os.environ, "COVERAGE_FILE": str(cov_data_file)}
     try:
         result = subprocess.run(cmd, cwd=str(_REPO_ROOT), capture_output=True, text=True, timeout=900, env=subprocess_env)
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as exc:
+        logger.warning("coverage run timed out (%s)", type(exc).__name__)
         return (
             None,
             "coverage subprocess timed out after 900s -- too slow to run "
