@@ -81,7 +81,11 @@ _PROPERTY_DECORATORS: frozenset[str] = frozenset({"property", "cached_property"}
 # Per-symbol whitelist for confirmed legitimate public helpers that this
 # name-based checker can't distinguish from a real miss. Format:
 # "<rel_path>:<lineno>::<name>".
-_WHITELIST: set[str] = set()
+_WHITELIST: set[str] = {
+    "src/llm_bench/storage/file.py:383::get_cached",  # public FileStorage read API, called by examples and external consumers
+    "src/llm_bench/storage/file.py:485::query_spend_total",  # public FileStorage spend query, called by examples and external consumers
+    "src/llm_bench/storage/file.py:590::delete_experiment",  # public FileStorage delete API, called by examples and external consumers
+}
 
 
 @dataclass(frozen=True)
