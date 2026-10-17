@@ -47,7 +47,7 @@ postgres = [
 ]
 dev = [
     # Exact, equal to py_ci_shared.tool_versions.RUFF_VERSION; the pinned-tool-versions hook holds the two together.
-    "ruff==0.16.1",
+    "ruff==0.16.10",
     "black>=23.0",
     "mypy>=1.0",
     "pytest>=7.0",
