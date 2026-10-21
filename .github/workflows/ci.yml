@@ -117,7 +117,7 @@ jobs:
       - name: Resolve PY_CI_SHARED_DIR
         run: |
           # py-ci-shared master, version 1.22.12
-          uv pip install --system "py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@fd2f017ba28a778a006ce30f38369e4aa19c27ca"
+          uv pip install --system "py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@baae24d7342eb32f60df81342ec81ff82c5302ca"
           d=$(dirname "$(dirname "$(py-ci-shared config-path ruff-base)")")
           echo "PY_CI_SHARED_DIR=$d" >> "$GITHUB_ENV"
 
@@ -250,7 +250,7 @@ jobs:
     name: lint + security (shared, blocking)
     permissions:
       contents: read
-    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@fd2f017ba28a778a006ce30f38369e4aa19c27ca  # master, version 1.22.12
+    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@baae24d7342eb32f60df81342ec81ff82c5302ca  # v1.23.3
     with:
       source-path: src/llm_bench
       codespell-paths: src/llm_bench README.md

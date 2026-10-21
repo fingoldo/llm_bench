@@ -61,7 +61,7 @@ dev = [
     "hypothesis>=6.0",
     "pre-commit>=3.0",
     "detect-secrets>=1.5",
-    "py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@fd2f017ba28a778a006ce30f38369e4aa19c27ca",  # master, version 1.22.12
+    "py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@baae24d7342eb32f60df81342ec81ff82c5302ca",  # v1.23.3
     # The 6 hygiene tools .pre-commit-config.yaml's *-blocking hooks invoke via
     # `python -m <tool>` (zizmor excepted -- it runs standalone via `uvx zizmor .`,
     # needing no persistent install). Declared here so both the local pre-commit

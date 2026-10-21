@@ -6,7 +6,6 @@
   "default_via_or::cost/estimator.py::d15b7f23dc49",
   "default_via_or::cost/estimator.py::d9cd0a47f765",
   "default_via_or::halving/assignment.py::cfbeda6236a8",
-  "default_via_or::halving/driver.py::663c4f479b7a",
   "default_via_or::storage/postgres.py::e36b8ed0bbda",
   "duplicate_credential_regex::core/redaction.py::39fa92c6febf",
   "duplicate_function_body_subset::storage/file.py::d0bda524d05c",
