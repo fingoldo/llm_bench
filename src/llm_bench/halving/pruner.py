@@ -181,13 +181,17 @@ def mad_bootstrap_prune(
             # iteration stream) (audit: 06-High #2, measured 986ms @
             # n=52 / 6.4s @ n=100 on the sibling unpaired branch below —
             # same quadratic shape applies here).
+            # ``statistics.fmean(list)`` is exactly ``math.fsum(list) / len(list)``. Calling it on a generator per
+            # (iteration, model) cost ~0.6s of a 0.8s profile at n=27, so the rows are indexed directly instead.
+            rows = [per_unit[m] for m in model_names]
+            penalties = [penalty_of[m] for m in model_names]
             deviations_by_model: dict[str, list[float]] = {m: [] for m in model_names}
             for _ in range(n_bootstrap):
                 idx = [rng.randrange(unit_count) for _ in range(unit_count)]
-                means_eff = {m: statistics.fmean(per_unit[m][i] for i in idx) - penalty_of[m] for m in model_names}
-                iter_median = statistics.median(means_eff.values())
-                for m in model_names:
-                    deviations_by_model[m].append(means_eff[m] - iter_median)
+                means_eff = [math.fsum([row[i] for i in idx]) / unit_count - pen for row, pen in zip(rows, penalties, strict=True)]
+                iter_median = statistics.median(means_eff)
+                for m, mean_eff in zip(model_names, means_eff, strict=True):
+                    deviations_by_model[m].append(mean_eff - iter_median)
             for model, _v_eff in eff_items:
                 deviations = sorted(deviations_by_model[model])
                 lb_deviation = deviations[int(0.025 * n_bootstrap)]

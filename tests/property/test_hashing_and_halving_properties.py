@@ -105,8 +105,7 @@ class TestCompositeHashProperties:
     target=st.integers(min_value=1, max_value=30),
     score_seed=st.integers(min_value=0, max_value=2**31 - 1),
 )
-# deadline=None: promote runs a bootstrap MAD prune whose wall time varies with machine load (250-330ms seen under -n 4); the invariant is about sizes and partitions, not speed.
-@settings(max_examples=100, deadline=None)
+@settings(max_examples=100)
 def test_promote_never_exceeds_target_size(n_candidates, target, score_seed):
     target = min(target, n_candidates)
     models = [f"m{i}" for i in range(n_candidates)]
@@ -130,8 +129,7 @@ def test_promote_never_exceeds_target_size(n_candidates, target, score_seed):
     target=st.integers(min_value=1, max_value=30),
     score_seed=st.integers(min_value=0, max_value=2**31 - 1),
 )
-# deadline=None: promote runs a bootstrap MAD prune whose wall time varies with machine load (250-330ms seen under -n 4); the invariant is about sizes and partitions, not speed.
-@settings(max_examples=100, deadline=None)
+@settings(max_examples=100)
 def test_promote_partitions_all_candidates_without_specialty_or_dead_filter(n_candidates, target, score_seed):
     # No per_stage_winners / no error_history / no coverage gate in
     # play here -> every input candidate must land in EXACTLY one of
