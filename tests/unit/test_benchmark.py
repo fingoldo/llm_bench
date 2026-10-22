@@ -91,3 +91,24 @@ class TestCascadeHaltsWhenEveryCandidateIsEliminated:
         # left" halt and broke out of the loop instead of running.
         assert len(report.rounds) == 1
         assert report.final_candidates == []
+
+
+class TestInitializeIsIdempotent:
+    async def test_second_initialize_does_not_reinitialize_storage(self):
+        class _CountingStorage(InMemoryStorage):
+            n_initialize = 0
+
+            async def initialize(self) -> None:
+                type(self).n_initialize += 1
+                await super().initialize()
+
+        schedule = HalvingSchedule(round_sizes=(1,), units_per_arm=(1,), pool_size=1)
+        bench = Benchmark(
+            task_pool=_FakePool(units=[]), stages=StageGraph(stages=[]), storage=_CountingStorage(),
+            halving_schedule=schedule, provider_factory=lambda model: _RecordingProvider(model=model),
+        )
+        await bench.initialize()
+        await bench.initialize()
+
+        assert _CountingStorage.n_initialize == 1
+        assert bench._initialized is True

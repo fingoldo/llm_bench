@@ -123,40 +123,60 @@ def _refresh_requested() -> bool:
     return REFRESH_FLAG in sys.argv
 
 
-def _branch_point_keys(tree: ast.AST, rel: str) -> list[str]:
+def _branch_points(tree: ast.AST, rel: str) -> list[tuple[str, int]]:
     """AST-enumerate every if/elif/else/except/ternary branch DESTINATION
-    in ``tree``, returning stable keys ``"<rel>:<lineno>:<kind>"`` -- one
-    key per branch actually taken (the first line of the body that runs
-    when that branch fires), not one key per ``if``/``try``/``IfExp``
-    node.
+    in ``tree`` as ``(key, coverage_line)`` pairs -- one per branch actually
+    taken, not one per node.
 
-    ``elif`` chains need no special-casing: Python's ast represents
-    ``elif`` as a nested ``ast.If`` inside the parent's ``orelse``, and
-    ``ast.walk`` visits that nested node too, contributing its own
-    if-true/if-false pair -- so a 3-way elif chain naturally yields one
-    pair per link.
+    Keys are relocation-proof: ``"<rel>:<scope>:<kind>:<expr>[#n]"`` where
+    ``scope`` is the dotted enclosing class/function path, ``expr`` the
+    unparsed condition (or exception type), and ``#n`` disambiguates
+    repeats within one scope. Editing code elsewhere in the file never
+    renames a key, so old debt is not re-reported as NEW.
 
-    Ternary (``ast.IfExp``) branches are recorded at line-level
-    granularity like everything else here: for a single-line ternary
-    (the overwhelmingly common case), both arms share one line number,
-    so this cannot distinguish "only the true arm ever ran" from "both
-    ran" -- it can only tell whether the line executed AT ALL. This is a
-    known, accepted coarsening (the whole checker cross-references
-    against coverage.json's LINE data, not branch-arc pairs), not a bug.
+    ``coverage_line`` is the first line of the statement that runs when the
+    branch fires; a ternary inside a multi-line statement maps to that
+    statement's first line, the only line coverage.py records. Ternaries
+    are therefore line-granular: whether the line ran, not which arm.
+    ``elif`` is a nested ``ast.If`` in ``orelse`` and is visited as such.
     """
-    keys: list[str] = []
-    for node in ast.walk(tree):
+    points: list[tuple[str, int]] = []
+    seen: dict[str, int] = {}
+
+    def add(scope: str, kind: str, expr: str, line: int) -> None:
+        base = f"{rel}:{scope}:{kind}:{' '.join(expr.split())[:60]}"
+        n = seen.get(base, 0)
+        seen[base] = n + 1
+        points.append((base if n == 0 else f"{base}#{n}", line))
+
+    def visit(node: ast.AST, scope: str, stmt_line: int) -> None:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            scope = f"{scope}.{node.name}" if scope else node.name
+        if isinstance(node, ast.stmt):
+            stmt_line = node.lineno
         if isinstance(node, ast.If):
+            cond = ast.unparse(node.test)
             if node.body:
-                keys.append(f"{rel}:{node.body[0].lineno}:if-true")
+                add(scope, "if-true", cond, node.body[0].lineno)
             if node.orelse:
-                keys.append(f"{rel}:{node.orelse[0].lineno}:if-false")
+                add(scope, "if-false", cond, node.orelse[0].lineno)
         elif isinstance(node, ast.Try):
-            keys.extend(f"{rel}:{handler.body[0].lineno}:except" for handler in node.handlers if handler.body)
+            for handler in node.handlers:
+                if handler.body:
+                    add(scope, "except", ast.unparse(handler.type) if handler.type else "", handler.body[0].lineno)
         elif isinstance(node, ast.IfExp):
-            keys.append(f"{rel}:{node.body.lineno}:ternary-true")
-            keys.append(f"{rel}:{node.orelse.lineno}:ternary-false")
-    return keys
+            cond = ast.unparse(node.test)
+            add(scope, "ternary-true", cond, stmt_line)
+            add(scope, "ternary-false", cond, stmt_line)
+        for child in ast.iter_child_nodes(node):
+            visit(child, scope, stmt_line)
+
+    visit(tree, "", 0)
+    return points
+
+
+def _branch_point_keys(tree: ast.AST, rel: str) -> list[str]:
+    return [key for key, _ in _branch_points(tree, rel)]
 
 
 def _load_covered_or_excluded_lines(cov_json_path: Path) -> dict[str, set[int]]:
@@ -201,8 +221,7 @@ def _uncovered_branch_keys(src_root: Path, covered_by_file: dict[str, set[int]])
             uncovered.append(f"{rel}:0:syntax-error:{e}")
             continue
         covered_lines = covered_by_file.get(rel, set())
-        for key in _branch_point_keys(tree, rel):
-            lineno = int(key.split(":", 2)[1])
+        for key, lineno in _branch_points(tree, rel):
             if lineno not in covered_lines:
                 uncovered.append(key)
     return sorted(uncovered)
@@ -378,30 +397,38 @@ class TestBranchPointKeysDetectsShapes:
 
     def test_if_without_else_fires_one_branch(self, tmp_path):
         keys = self._run(tmp_path, "def f(x):\n" "    if x:\n" "        return 1\n" "    return 0\n")
-        assert keys == ["synthetic.py:3:if-true"]
+        assert keys == ["synthetic.py:f:if-true:x"]
 
     def test_if_else_fires_both_branches(self, tmp_path):
         keys = self._run(tmp_path, "def f(x):\n" "    if x:\n" "        return 1\n" "    else:\n" "        return 0\n")
-        assert set(keys) == {"synthetic.py:3:if-true", "synthetic.py:5:if-false"}
+        assert set(keys) == {"synthetic.py:f:if-true:x", "synthetic.py:f:if-false:x"}
 
     def test_elif_chain_fires_each_link(self, tmp_path):
         source = "def f(x):\n" "    if x == 1:\n" "        return 'a'\n" "    elif x == 2:\n" "        return 'b'\n" "    else:\n" "        return 'c'\n"
         keys = self._run(tmp_path, source)
         assert set(keys) == {
-            "synthetic.py:3:if-true",
-            "synthetic.py:4:if-false",
-            "synthetic.py:5:if-true",
-            "synthetic.py:7:if-false",
+            "synthetic.py:f:if-true:x == 1",
+            "synthetic.py:f:if-false:x == 1",
+            "synthetic.py:f:if-true:x == 2",
+            "synthetic.py:f:if-false:x == 2",
         }
 
     def test_except_handler_fires(self, tmp_path):
         source = "def f():\n" "    try:\n" "        risky()\n" "    except ValueError:\n" "        return None\n"
         keys = self._run(tmp_path, source)
-        assert keys == ["synthetic.py:5:except"]
+        assert keys == ["synthetic.py:f:except:ValueError"]
 
     def test_ternary_fires_both_arms(self, tmp_path):
         keys = self._run(tmp_path, "def f(x):\n" "    return 1 if x else 0\n")
-        assert set(keys) == {"synthetic.py:2:ternary-true", "synthetic.py:2:ternary-false"}
+        assert set(keys) == {"synthetic.py:f:ternary-true:x", "synthetic.py:f:ternary-false:x"}
+
+    def test_keys_survive_line_shifts(self, tmp_path):
+        body = "def f(x):\n    if x:\n        return 1\n    return 0\n"
+        assert self._run(tmp_path, body) == self._run(tmp_path, "import os\n\n\n" + body)
+
+    def test_multiline_statement_ternary_maps_to_statement_line(self, tmp_path):
+        tree = ast.parse("def f(x):\n    return g(\n        a=1 if x else 0,\n    )\n")
+        assert {line for _, line in _branch_points(tree, "m.py")} == {2}
 
     def test_branch_free_function_is_silent(self, tmp_path):
         keys = self._run(tmp_path, "def f(x):\n" "    return x + 1\n")
@@ -421,7 +448,7 @@ class TestUncoveredBranchKeysCrossReference:
         src_root = self._write(tmp_path, "def f(x):\n" "    if x:\n" "        return 1\n" "    return 0\n")
         covered_by_file = {"mod.py": {1, 2, 4}}  # line 3 (the if-true body) never executed
         uncovered = _uncovered_branch_keys(src_root, covered_by_file)
-        assert uncovered == ["mod.py:3:if-true"]
+        assert uncovered == ["mod.py:f:if-true:x"]
 
     def test_covered_branch_line_is_silent(self, tmp_path):
         src_root = self._write(tmp_path, "def f(x):\n" "    if x:\n" "        return 1\n" "    return 0\n")
@@ -435,7 +462,7 @@ class TestUncoveredBranchKeysCrossReference:
         # show as uncovered, not silently pass via a missing dict key.
         src_root = self._write(tmp_path, "def f(x):\n" "    if x:\n" "        return 1\n" "    return 0\n")
         uncovered = _uncovered_branch_keys(src_root, {})
-        assert uncovered == ["mod.py:3:if-true"]
+        assert uncovered == ["mod.py:f:if-true:x"]
 
 
 class TestLoadCoveredOrExcludedLinesMergesExclusions:
