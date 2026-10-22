@@ -33,7 +33,7 @@ jobs:
   mypy-full:
     permissions:
       contents: read
-    uses: fingoldo/py-ci-shared/.github/workflows/mypy-full.yml@baae24d7342eb32f60df81342ec81ff82c5302ca  # v1.23.3
+    uses: fingoldo/py-ci-shared/.github/workflows/mypy-full.yml@a27708158418f1ee67e039426c61ccf9705f9d70  # v1.23.3
     with:
       package-name: llm_bench
       mypy-version: "2.1.0"
