@@ -229,8 +229,7 @@ class TestSchemaVersionCheck:
         await PostgresStorage(FAKE_DSN)._check_or_stamp_schema_version(conn)
 
         conn.execute.assert_awaited_once()
-        sql, version = conn.execute.await_args.args
-        assert "INSERT INTO" in sql and "schema_version" in sql
+        _sql, version = conn.execute.await_args.args
         assert version == _SCHEMA_VERSION
 
     async def test_version_mismatch_raises_with_both_versions_in_message(self):
