@@ -39,7 +39,7 @@ class TestConcurrentInitialize:
                 closed.append(conn)
                 await real_close()
 
-            conn.close = _close
+            monkeypatch.setattr(conn, "close", _close)
             opened.append(conn)
             return conn
 
