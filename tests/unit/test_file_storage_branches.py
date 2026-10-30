@@ -31,7 +31,17 @@ class TestConcurrentInitialize:
         opened: list = []
         closed: list = []
 
+        # Both callers must be inside connect before either publishes, or the second one returns at the
+        # early `_initialized` check and the duplicate-connection branch is reached only by scheduling luck.
+        both_connecting = asyncio.Event()
+        in_flight = 0
+
         async def _connect(*args, **kwargs):
+            nonlocal in_flight
+            in_flight += 1
+            if in_flight == 2:
+                both_connecting.set()
+            await both_connecting.wait()
             conn = await real_connect(*args, **kwargs)
             real_close = conn.close
 
@@ -51,6 +61,52 @@ class TestConcurrentInitialize:
         assert closed == [c for c in opened if c is not storage._db]
         assert storage._db in opened
         await storage.close()
+
+
+class TestWalSwitchRetry:
+    """The WAL switch retries a locked database a bounded number of times; any other error is raised at once."""
+
+    @staticmethod
+    def _flaky_connect(monkeypatch, failures: list):
+        real_connect = aiosqlite.connect
+
+        class _Flaky:
+            def __init__(self, conn):
+                self._conn = conn
+
+            async def execute(self, sql, *args):
+                if "journal_mode" in sql and failures:
+                    raise aiosqlite.OperationalError(failures.pop(0))
+                return await self._conn.execute(sql, *args)
+
+            def __getattr__(self, name):
+                return getattr(self._conn, name)
+
+        async def _connect(*args, **kwargs):
+            return _Flaky(await real_connect(*args, **kwargs))
+
+        monkeypatch.setattr(file_mod.aiosqlite, "connect", _connect)
+
+    async def test_a_locked_wal_switch_is_retried_until_it_succeeds(self, tmp_path, monkeypatch):
+        self._flaky_connect(monkeypatch, ["database is locked", "database is locked"])
+        storage = FileStorage(tmp_path / "fs")
+        await storage.initialize()
+        assert storage._initialized is True
+        await storage.close()
+
+    async def test_a_wal_switch_still_locked_after_every_attempt_raises(self, tmp_path, monkeypatch):
+        self._flaky_connect(monkeypatch, ["database is locked"] * 10)
+        storage = FileStorage(tmp_path / "fs")
+        with pytest.raises(aiosqlite.OperationalError, match="locked"):
+            await storage.initialize()
+
+    async def test_a_non_lock_error_on_the_wal_switch_is_raised_without_retrying(self, tmp_path, monkeypatch):
+        failures = ["disk I/O error", "disk I/O error"]
+        self._flaky_connect(monkeypatch, failures)
+        storage = FileStorage(tmp_path / "fs")
+        with pytest.raises(aiosqlite.OperationalError, match="disk I/O error"):
+            await storage.initialize()
+        assert failures == ["disk I/O error"]
 
 
 class TestTagDirContainment:

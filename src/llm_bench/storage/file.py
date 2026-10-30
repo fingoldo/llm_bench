@@ -143,8 +143,19 @@ class FileStorage:
         # a write hits a lock held by another process/connection —
         # the actual mechanism the module docstring's old "OS-locked
         # via WAL" claim was missing (audit: 04-High).
-        await db.execute("PRAGMA journal_mode=WAL;")
+        # busy_timeout first: switching to WAL takes a lock, and a concurrent first caller on another connection
+        # must wait for it instead of failing with "database is locked" (the race the publish guard below handles).
         await db.execute("PRAGMA busy_timeout=5000;")
+        # The switch to WAL takes an exclusive lock that the busy handler does not always wait for, so a concurrent
+        # first caller in another connection can still see "database is locked" here. Retry a bounded number of times.
+        for attempt in range(5):
+            try:
+                await db.execute("PRAGMA journal_mode=WAL;")
+                break
+            except aiosqlite.OperationalError as exc:
+                if "locked" not in str(exc) or attempt == 4:
+                    raise
+                await asyncio.sleep(0.05 * (attempt + 1))
         await db.executescript(_INDEX_DDL)
         await db.commit()
         async with self._lock:
