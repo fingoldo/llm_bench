@@ -8,10 +8,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
-pytest.importorskip("py_ci_shared.llm_output_caps", reason="py-ci-shared is installed in the CI legs that run the meta tests")
-
 from py_ci_shared.llm_output_caps import assert_known_caps_only_shrink, assert_no_new_output_caps, numeric_output_caps  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
