@@ -79,6 +79,8 @@ _LOCK_RETRY_BASE_DELAY_SEC = 0.1
 _LOCK_RETRY_BACKOFF_FACTOR = 2
 
 
+_WAL_RETRY_BACKOFF_S = 0.05
+
 class FileStorage:
     """Append-only JSONL backend with a SQLite resume index.
 
@@ -155,7 +157,7 @@ class FileStorage:
             except aiosqlite.OperationalError as exc:
                 if "locked" not in str(exc) or attempt == 4:
                     raise
-                await asyncio.sleep(0.05 * (attempt + 1))
+                await asyncio.sleep(_WAL_RETRY_BACKOFF_S * (attempt + 1))
         await db.executescript(_INDEX_DDL)
         await db.commit()
         async with self._lock:
