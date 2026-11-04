@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+- `PostgresStorage.initialize` no longer puts the driver's exception text in the connect-failure message (libpq can echo the connection string);
+  the message carries the exception type and SQLSTATE only.
+- py-ci-shared pinned to e13229e (1.23.8) with 50 more gates enabled in `[tool.py_ci_shared]`; CI workflows pin runner images, cancel only pull-request
+  runs, and set job timeouts; Dependabot tracks the GitHub Actions pins.
+
 ### Added
 - Repo skeleton extracted from VocabApp's benchmark framework, built out in
   phases: storage Protocol + `InMemoryStorage` (Phase A), Sequential

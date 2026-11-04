@@ -312,7 +312,7 @@ class PostgresStorage:
                 # may log/print it verbatim — cli/main.py's `doctor`
                 # command does exactly that (audit: security 07-Low).
                 raise RuntimeError(
-                    f"PostgresStorage: failed to connect to {redact_dsn(self._url)!r}: " f"{type(exc).__name__}: {exc}",
+                    f"PostgresStorage: failed to connect to {redact_dsn(self._url)!r}: " f"{type(exc).__name__} (sqlstate={getattr(exc, 'sqlstate', None)})",
                 ) from exc
             # A crash/error here must not leave a half-initialised,
             # non-None self._pool behind — assign only after DDL + the
@@ -320,7 +320,7 @@ class PostgresStorage:
             try:
                 async with pool.acquire() as conn:
                     for stmt in _ddl(self._schema):
-                        await conn.execute(stmt)
+                        await conn.execute(stmt)  # lock-io-ok: one-time schema DDL; the lock keeps concurrent initialize() calls from racing the DDL
                     await self._check_or_stamp_schema_version(conn)
             except Exception:
                 await pool.close()

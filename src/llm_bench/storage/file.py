@@ -262,11 +262,11 @@ class FileStorage:
         await self.initialize()
         async with self._lock:
             assert self._db is not None
-            cur = await self._db.execute(
+            cur = await self._db.execute(  # lock-io-ok: this lock is the index write order (JSONL line and row land together)
                 "SELECT 1 FROM prompts_index WHERE composite_hash = ? LIMIT 1",
                 (comp_h,),
             )
-            row = await cur.fetchone()
+            row = await cur.fetchone()  # lock-io-ok: this lock is the index write order (JSONL line and row land together)
             await cur.close()
             if row is not None:
                 return sys_h, usr_h, comp_h
@@ -283,7 +283,7 @@ class FileStorage:
                 "INSERT OR IGNORE INTO prompts_index (composite_hash) VALUES (?)",
                 (comp_h,),
             )
-            await self._db.commit()
+            await self._db.commit()  # lock-io-ok: this lock is the index write order (JSONL line and row land together)
         return sys_h, usr_h, comp_h
 
     # ── result row writes ─────────────────────────────────────────
@@ -306,11 +306,11 @@ class FileStorage:
             # — this is what lets FileStorage actually persist a
             # successful retry (unlike the Postgres/InMemory
             # ``ON CONFLICT DO NOTHING`` bug fixed alongside this).
-            cur = await self._db.execute(
+            cur = await self._db.execute(  # lock-io-ok: this lock is the index write order (JSONL line and row land together)
                 "SELECT 1 FROM resume_cache WHERE composite_hash=? AND " "provider=? AND model=? AND thinking=? LIMIT 1",
                 (row.composite_hash, row.provider, row.model, row.thinking),
             )
-            existing = await cur.fetchone()
+            existing = await cur.fetchone()  # lock-io-ok: this lock is the index write order (JSONL line and row land together)
             await cur.close()
             if existing is not None:
                 return row.composite_hash
@@ -349,7 +349,7 @@ class FileStorage:
                         row.experiment_tag,
                     ),
                 )
-                await self._db.commit()
+                await self._db.commit()  # lock-io-ok: this lock is the index write order (JSONL line and row land together)
         return row.composite_hash
 
     # ── resume cache ──────────────────────────────────────────────
@@ -364,7 +364,7 @@ class FileStorage:
         out: dict[tuple[str, str, str, str], CachedResponse] = {}
         assert self._db is not None
         async with self._lock:
-            cur = await self._db.execute(
+            cur = await self._db.execute(  # lock-io-ok: this lock is the index write order (JSONL line and row land together)
                 "SELECT composite_hash, provider, model, thinking, response, "
                 "input_tokens, output_tokens, reasoning_tokens, cost_usd, "
                 "error_class, source_tag FROM resume_cache"
@@ -404,14 +404,14 @@ class FileStorage:
         await self.initialize()
         assert self._db is not None
         async with self._lock:
-            cur = await self._db.execute(
+            cur = await self._db.execute(  # lock-io-ok: this lock is the index write order (JSONL line and row land together)
                 "SELECT response, input_tokens, output_tokens, "
                 "reasoning_tokens, cost_usd, error_class, source_tag "
                 "FROM resume_cache WHERE composite_hash=? AND provider=? "
                 "AND model=? AND thinking=?",
                 (composite_hash, provider, model, thinking),
             )
-            row = await cur.fetchone()
+            row = await cur.fetchone()  # lock-io-ok: this lock is the index write order (JSONL line and row land together)
             await cur.close()
         if row is None:
             return None
@@ -631,7 +631,7 @@ class FileStorage:
                 "DELETE FROM resume_cache WHERE source_tag=?",
                 (tag,),
             )
-            await self._db.commit()
+            await self._db.commit()  # lock-io-ok: this lock is the index write order (JSONL line and row land together)
             if tag_dir.exists():
                 await asyncio.to_thread(shutil.rmtree, tag_dir)
         return n

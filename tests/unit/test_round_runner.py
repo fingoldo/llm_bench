@@ -14,6 +14,7 @@ failure surfacing into RoundResult.notes.
 from __future__ import annotations
 
 import asyncio
+from collections import defaultdict
 from dataclasses import dataclass
 
 import pytest
@@ -30,6 +31,7 @@ from llm_bench import (
 )
 from llm_bench.runner.budget import BudgetGate, StageBudget
 from llm_bench.runner.resume import ResumeCache
+from llm_bench.runner import round_runner as _round_runner_module
 from llm_bench.runner.round_runner import RoundConfig, _build_prompt, _parse_safely, run_round
 from llm_bench.stage.base import StageContext
 
@@ -90,6 +92,29 @@ async def _init(storage: InMemoryStorage) -> InMemoryStorage:
 # ──────────────────────────────────────────────────────────────────────
 # Providers
 # ──────────────────────────────────────────────────────────────────────
+
+class _FakeClock:
+    """Stands in for the ``time`` module inside round_runner so a provider can take 'time' without waiting for it.
+
+    Time is kept per asyncio task: concurrent candidates each see only their own provider's delay, as they would on a real clock."""
+
+    def __init__(self) -> None:
+        self._elapsed: defaultdict[object, float] = defaultdict(float)
+
+    def advance(self, seconds: float) -> None:
+        task = asyncio.current_task()
+        self._elapsed[task] += seconds
+
+    def monotonic(self) -> float:
+        return self._elapsed[asyncio.current_task()]
+
+
+@pytest.fixture
+def fake_clock(monkeypatch):
+    clock = _FakeClock()
+    monkeypatch.setattr(_round_runner_module, "time", clock)
+    return clock
+
 
 @dataclass
 class _RecordingProvider:
@@ -235,7 +260,7 @@ class TestWinnerSubstrateWiring:
 # ──────────────────────────────────────────────────────────────────────
 
 class TestLatencyReachesHalvingCut:
-    async def test_faster_candidate_wins_score_and_cost_tie(self):
+    async def test_faster_candidate_wins_score_and_cost_tie(self, fake_clock):
         # Two candidates tied on score AND eff_cost; only latency
         # differs. This end-to-end run_round() test only passes if
         # round_runner.py actually aggregates per-model latency and
@@ -254,8 +279,7 @@ class TestLatencyReachesHalvingCut:
                 self.last_effective_cost_usd = 0.01
 
             async def generate(self, *, prompt, system):
-                if self.delay:
-                    await asyncio.sleep(self.delay)
+                fake_clock.advance(self.delay)
                 return '{"ok": true, "padding": "enough length here"}'
 
         graph = _graph_single_stage()
@@ -263,7 +287,7 @@ class TestLatencyReachesHalvingCut:
         schedule = HalvingSchedule(round_sizes=(2, 1), units_per_arm=(1, 1), pool_size=1)
 
         def factory(m):
-            return _TimedProvider(m, delay=0.05 if m == "slow" else 0.0)
+            return _TimedProvider(m, delay=0.05 if m == "slow" else 0.001)
 
         cfg = _cfg(
             candidates=["fast", "slow"], task_units=_units(1), stages=graph, storage=storage,
@@ -653,7 +677,7 @@ class TestQuarantine:
         assert len(rows) == 1
         assert rows[0].stage == "root"
 
-    async def test_duration_spike_quarantines_remaining_stages_for_that_pair(self):
+    async def test_duration_spike_quarantines_remaining_stages_for_that_pair(self, fake_clock):
         class _SlowProvider:
             def __init__(self, model):
                 self.model = model
@@ -664,7 +688,7 @@ class TestQuarantine:
                 self.last_effective_cost_usd = 0.001
 
             async def generate(self, *, prompt, system):
-                await asyncio.sleep(0.05)
+                fake_clock.advance(0.05)
                 return '{"ok": true, "padding": "enough length here"}'
 
         graph = StageGraph([
@@ -911,7 +935,7 @@ class TestPerOpConcurrency:
                 async with lock:
                     in_flight["current"] += 1
                     in_flight["max"] = max(in_flight["max"], in_flight["current"])
-                await asyncio.sleep(0.02)
+                await asyncio.sleep(0)  # yield to the loop so the other calls would overlap if the cap did not hold
                 async with lock:
                     in_flight["current"] -= 1
                 return '{"ok": true, "padding": "enough length here too"}'
