@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from llm_bench.cost.catalogue import CatalogueEntry
+from llm_bench.cost.catalogue import DEFAULT_MIN_UPTIME, CatalogueEntry
 
 
 @dataclass(frozen=True)
@@ -35,7 +35,7 @@ class CostFilter:
     ``structured_outputs`` (matches OR's supported_parameters check)."""
 
     require_healthy: bool = True
-    min_uptime: float = 0.95
+    min_uptime: float = DEFAULT_MIN_UPTIME
     """Health gate: best-upstream 30m uptime must clear ``min_uptime``.
 
     NO-OP for any ``ModelCatalogue`` that leaves ``best_uptime_30m`` as
