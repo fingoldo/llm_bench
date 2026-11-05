@@ -549,7 +549,7 @@ class TestCoverageFileIsolation:
             stdout = ""
             stderr = ""
 
-        def _fake_run(cmd, cwd, capture_output, text, timeout, env):
+        def _fake_run(cmd, cwd, capture_output, text, timeout, env):  # unused-ok: mirrors subprocess.run's keyword set, which the caller passes
             captured_env.update(env)
             # Simulate a real run: write a plausible cov.json so the
             # caller's `cov_json.exists()` check succeeds.
@@ -578,7 +578,7 @@ class TestCoverageFileIsolation:
             stdout = ""
             stderr = ""
 
-        def _fake_run(cmd, cwd, capture_output, text, timeout, env):
+        def _fake_run(cmd, cwd, capture_output, text, timeout, env):  # unused-ok: mirrors subprocess.run's keyword set, which the caller passes
             captured.append(env["COVERAGE_FILE"])
             for arg in cmd:
                 if arg.startswith("--cov-report=json:"):

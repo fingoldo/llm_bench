@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from llm_bench.cost.catalogue import CatalogueEntry
+from llm_bench.cost.catalogue import DEFAULT_MIN_UPTIME, CatalogueEntry
 
 logger = logging.getLogger(__name__)
 
@@ -209,7 +209,7 @@ class OpenRouterCatalogue:
         *,
         refresh: bool = False,
         only_healthy: bool = True,
-        min_uptime: float = 0.95,
+        min_uptime: float = DEFAULT_MIN_UPTIME,
     ) -> list[CatalogueEntry]:
         from pyutilz.llm import list_openrouter_models
 

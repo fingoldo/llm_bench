@@ -61,7 +61,7 @@ dev = [
     "hypothesis>=6.0",
     "pre-commit>=3.0",
     "detect-secrets>=1.5",
-    "py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@670b80cbfd4b851578346741c21b62b8aa0ce4dc",  # v1.23.7
+    "py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@e13229e5707e73356eca2a74f39d4cd93af0db10",  # v1.23.8
     # The 6 hygiene tools .pre-commit-config.yaml's *-blocking hooks invoke via
     # `python -m <tool>` (zizmor excepted -- it runs standalone via `uvx zizmor .`,
     # needing no persistent install). Declared here so both the local pre-commit
@@ -278,6 +278,56 @@ enable = [
     "stale_source_citations",
     "hardcoded_token_ceilings",
     "machine_specific_paths",
+    # Added at py-ci-shared e13229e (step 8): zero-configuration gates for the domains this repo has.
+    "api_floor",
+    "cancellation_prone_moments",
+    "ci_install_covers_conftest",
+    "ci_install_covers_entry_imports",
+    "cli_flag_spelling",
+    "comment_repo_paths",
+    "commit_metadata",
+    "committed_line_endings",
+    "connection_liveness_kwargs",
+    "constant_fallback_cache_key",
+    "coverage_config_parity",
+    "definition_after_entry_guard",
+    "drifted_duplicate_literals",
+    "duplicate_test_body",
+    "env_write_restore",
+    "guard_without_fixture",
+    "hardcoded_seed_in_library",
+    "id_keyed_cache_validates_identity",
+    "import_side_effects",
+    "import_time_global_side_effects",
+    "lf_file_writes",
+    "loop_invariant_cast",
+    "module_cache_thread_safety",
+    "naive_utcnow",
+    "optional_collaborator_wired",
+    "optional_imports_guarded",
+    "persisted_negative_probe",
+    "predictable_tmp_path",
+    "pytest_markers",
+    "reiterated_iterable_params",
+    "repo_hygiene",
+    "skip_as_pass",
+    "state_before_work",
+    "stub_signature_parity",
+    "systemexit_in_library",
+    "truncating_discretisation",
+    "unsafe_deserialization",
+    "unseeded_rng_fallback",
+    "validation_errors_echo_input",
+    "vendored_internal_imports",
+    "verified_then_reopened",
+    "wrapper_protocol_parity",
+    "wallclock_test_waits",
+    "git_child_env",
+    "connect_error_echo",
+    "single_shot_timing_assertion",
+    "unread_function_params",
+    "ci_default_branch_never_cancelled",
+    "workflow_runner_labels",
 ]
 
 [tool.py_ci_shared.gates.import_cycles]
@@ -332,3 +382,107 @@ module = "gate_integrity"
 entry = "assert_coverage_gate_parity"
 pyproject_path = "pyproject.toml"
 workflows_dir = ".github/workflows"
+
+# Gates below take a path or a population; each one's floor (min_files) keeps it from passing over nothing.
+[tool.py_ci_shared.gates.phantom_markdown_links]
+md_files = ["README.md", "CHANGELOG.md", "docs/*.md"]
+
+[tool.py_ci_shared.gates.stale_comment_age]
+scan_dirs = ["src", "tests"]
+
+[tool.py_ci_shared.gates.entry_points_resolvable]
+pyproject_path = "pyproject.toml"
+
+[tool.py_ci_shared.gates.checkout_resolution]
+module_names = ["llm_bench"]
+
+[tool.py_ci_shared.gates.ci_workflow_paths]
+workflows_dir = ".github/workflows"
+
+[tool.py_ci_shared.gates.ci_test_dir_reachability]
+workflows_dir = ".github/workflows"
+
+[tool.py_ci_shared.gates.gate_population_canary]
+tests_dir = "tests/test_meta"
+
+[tool.py_ci_shared.gates.fail_message_quality]
+meta_dir = "tests/test_meta"
+
+[tool.py_ci_shared.gates.meta_private_imports]
+meta_dir = "tests/test_meta"
+packages = ["llm_bench"]
+
+[tool.py_ci_shared.gates.epsilon_padded_denominators]
+roots = ["src"]
+
+[tool.py_ci_shared.gates.hash_fed_by_array_copy]
+roots = ["src"]
+
+[tool.py_ci_shared.gates.latched_availability_flags]
+roots = ["src"]
+
+[tool.py_ci_shared.gates.standard_stream_restore]
+roots = ["src", "tests"]
+
+[tool.py_ci_shared.gates.unresolved_module_attributes]
+roots = ["src"]
+
+[tool.py_ci_shared.gates.identity_comparisons]
+files = ["src/**/*.py"]
+
+[tool.py_ci_shared.gates.order_losing_filters]
+files = ["src/**/*.py"]
+
+
+
+[tool.py_ci_shared.gates.patch_target_read_at_call]
+test_paths = ["tests/**/*.py"]
+package_roots = ["src/llm_bench"]
+
+[tool.py_ci_shared.gates.pytest_addopts_path_runs]
+package_root = "."
+tests_dirs = ["tests"]
+
+[tool.py_ci_shared.gates.secret_assertion_operands]
+test_files = ["tests/**/*.py"]
+
+[tool.py_ci_shared.gates.source_text_claims]
+files = ["tests/**/*.py"]
+
+[tool.py_ci_shared.gates.module_state_test_reset]
+root = "."
+tests_root = "tests"
+
+[tool.py_ci_shared.gates.destructive_tests_throwaway_only]
+tests_root = "tests"
+hook_config_paths = [".pre-commit-config.yaml"]
+
+[tool.py_ci_shared.gates.timezone_honest]
+root = "."
+scan_paths = ["src", "tests", "benchmarks", "examples"]
+
+[tool.py_ci_shared.gates.doc_identifier_parity]
+repo_root = "."
+doc_files = ["README.md", "CHANGELOG.md", "docs/*.md"]
+
+[tool.py_ci_shared.gates.gate_config_honesty]
+precommit_path = ".pre-commit-config.yaml"
+workflows = [".github/workflows/ci.yml"]
+pyproject = "pyproject.toml"
+
+[tool.py_ci_shared.gates.ci_workflow_timeout_gate]
+workflow_path = ".github/workflows/ci.yml"
+
+[tool.py_ci_shared.gates.script_entry_points]
+root = "."
+script_dirs = ["benchmarks"]
+
+
+
+[tool.py_ci_shared.gates.disposition_test_references]
+audit_files = ["audits/2026-07-22_full-audit/*.md"]
+project_root = "."
+
+[tool.py_ci_shared.gates.drifted_duplicate_functions]
+roots = ["src"]
+

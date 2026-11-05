@@ -53,7 +53,7 @@ class _FakeProvider:
         if self.behavior == "404":
             raise Exception("OpenRouter API error 404: No endpoints found for X.")
         if self.behavior == "timeout":
-            await asyncio.sleep(60.0)  # longer than test timeout
+            await asyncio.Event().wait()  # never resolves until the preflight timeout cancels it
             return "should not get here"
         if self.behavior == "raise":
             raise RuntimeError("unexpected provider explosion")
@@ -182,12 +182,16 @@ async def test_preflight_without_provider_factory_reports_the_failure_per_model(
 @pytest.mark.asyncio
 async def test_preflight_runs_concurrently():
     """``concurrency`` cap actually parallelises (not serialises) calls."""
-    bench = _build_benchmark({m: "ok" for m in ["m1", "m2", "m3", "m4", "m5", "m6"]})
     import time
-    t0 = time.monotonic()
-    async with bench:
-        await bench.preflight(["m1", "m2", "m3", "m4", "m5", "m6"], concurrency=6)
-    dt = time.monotonic() - t0
+
+    durations = []
+    for _ in range(3):
+        bench = _build_benchmark({m: "ok" for m in ["m1", "m2", "m3", "m4", "m5", "m6"]})
+        t0 = time.monotonic()
+        async with bench:
+            await bench.preflight(["m1", "m2", "m3", "m4", "m5", "m6"], concurrency=6)
+        durations.append(time.monotonic() - t0)
+    dt = min(durations)
     # Six parallel ~instant pings should finish well under 2s; if they
     # serialised at concurrency=1 we'd see >1s easily even on a fast box.
     assert dt < 2.0, f"preflight too slow ({dt:.2f}s) - is concurrency wired?"

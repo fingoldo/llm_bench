@@ -14,12 +14,12 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
     name: pytest ${{ matrix.python-version }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -96,7 +96,8 @@ jobs:
 
   lint:
     name: lint + security
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
         with:
@@ -117,7 +118,7 @@ jobs:
       - name: Resolve PY_CI_SHARED_DIR
         run: |
           # py-ci-shared master, version 1.22.12
-          uv pip install --system "py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@670b80cbfd4b851578346741c21b62b8aa0ce4dc"
+          uv pip install --system "py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@e13229e5707e73356eca2a74f39d4cd93af0db10"
           d=$(dirname "$(dirname "$(py-ci-shared config-path ruff-base)")")
           echo "PY_CI_SHARED_DIR=$d" >> "$GITHUB_ENV"
 
@@ -169,7 +170,8 @@ jobs:
     # this environment's Python during this fix pass, so it was deliberately
     # left as a known gap rather than wired in unverified).
     name: hygiene gates (pre-commit parity)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
         with:
@@ -212,7 +214,8 @@ jobs:
   meta:
     # Mirrors the pre-commit hook for PRs that bypass pre-commit.
     name: meta-tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
         with:
@@ -250,7 +253,7 @@ jobs:
     name: lint + security (shared, blocking)
     permissions:
       contents: read
-    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@670b80cbfd4b851578346741c21b62b8aa0ce4dc  # v1.23.7
+    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@e13229e5707e73356eca2a74f39d4cd93af0db10  # v1.23.8
     with:
       source-path: src/llm_bench
       codespell-paths: src/llm_bench README.md
@@ -264,7 +267,8 @@ jobs:
 
   build:
     name: build sdist + wheel + install smoke
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     needs: test
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4

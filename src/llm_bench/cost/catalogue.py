@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
+DEFAULT_MIN_UPTIME: float = 0.95
+
 
 @dataclass(frozen=True)
 class CatalogueEntry:
@@ -43,7 +45,7 @@ class ModelCatalogue(Protocol):
         self, *,
         refresh: bool = False,
         only_healthy: bool = True,
-        min_uptime: float = 0.95,
+        min_uptime: float = DEFAULT_MIN_UPTIME,
     ) -> list[CatalogueEntry]:
         """Return the full catalogue. ``refresh=True`` bypasses any
         TTL cache. ``only_healthy=True`` drops models whose best-upstream
