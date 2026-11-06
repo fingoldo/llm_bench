@@ -239,6 +239,14 @@ jobs:
           git -C ../pyutilz checkout c4bad3fa3b267af483e154ecc653bb31d065ec85
           uv pip install --system "../pyutilz[llm]" -e ".[dev]"
 
+      # pyproject.toml's [tool.ruff] extend reads $PY_CI_SHARED_DIR, and the timezone_honest gate runs ruff. The
+      # lint job resolves it too; without this step the meta job fails with "environment variable not found".
+      - name: Resolve PY_CI_SHARED_DIR
+        run: |
+          uv pip install --system "py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@e13229e5707e73356eca2a74f39d4cd93af0db10"
+          d=$(dirname "$(dirname "$(py-ci-shared config-path ruff-base)")")
+          echo "PY_CI_SHARED_DIR=$d" >> "$GITHUB_ENV"
+
       - name: Run meta-tests (alias / API / optional-deps / side effects)
         run: pytest tests/test_meta/ --no-cov -p no:randomly -q
 
