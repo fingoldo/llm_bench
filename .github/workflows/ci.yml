@@ -80,6 +80,14 @@ jobs:
           python -c "import llm_bench; print('llm_bench', llm_bench.__version__)"
           python -c "import pyutilz; print('pyutilz OK')"
 
+      # The bare pytest run also collects the py-ci-shared gate items from pyproject.toml, and the timezone_honest
+      # gate runs ruff, which needs $PY_CI_SHARED_DIR (see the lint and meta jobs).
+      - name: Resolve PY_CI_SHARED_DIR
+        run: |
+          uv pip install --system "py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@630d5b73ef1cd7236e1c1e1d0887cf1c53bc31f6"
+          d=$(dirname "$(dirname "$(py-ci-shared config-path ruff-base)")")
+          echo "PY_CI_SHARED_DIR=$d" >> "$GITHUB_ENV"
+
       - name: Run tests with coverage (offline + postgres, skip live)
         env:
           PYTHONUNBUFFERED: "1"
@@ -118,7 +126,7 @@ jobs:
       - name: Resolve PY_CI_SHARED_DIR
         run: |
           # py-ci-shared master, version 1.22.12
-          uv pip install --system "py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@e13229e5707e73356eca2a74f39d4cd93af0db10"
+          uv pip install --system "py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@630d5b73ef1cd7236e1c1e1d0887cf1c53bc31f6"
           d=$(dirname "$(dirname "$(py-ci-shared config-path ruff-base)")")
           echo "PY_CI_SHARED_DIR=$d" >> "$GITHUB_ENV"
 
@@ -243,7 +251,7 @@ jobs:
       # lint job resolves it too; without this step the meta job fails with "environment variable not found".
       - name: Resolve PY_CI_SHARED_DIR
         run: |
-          uv pip install --system "py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@e13229e5707e73356eca2a74f39d4cd93af0db10"
+          uv pip install --system "py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@630d5b73ef1cd7236e1c1e1d0887cf1c53bc31f6"
           d=$(dirname "$(dirname "$(py-ci-shared config-path ruff-base)")")
           echo "PY_CI_SHARED_DIR=$d" >> "$GITHUB_ENV"
 
@@ -261,7 +269,7 @@ jobs:
     name: lint + security (shared, blocking)
     permissions:
       contents: read
-    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@e13229e5707e73356eca2a74f39d4cd93af0db10  # v1.23.8
+    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@630d5b73ef1cd7236e1c1e1d0887cf1c53bc31f6  # v1.23.8
     with:
       source-path: src/llm_bench
       codespell-paths: src/llm_bench README.md
