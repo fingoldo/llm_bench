@@ -160,7 +160,7 @@ jobs:
         run: uvx bandit -r src/ -ll -f json -o bandit-report.json
 
       - name: Upload bandit results
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         if: always()
         with:
           name: bandit-report
@@ -317,7 +317,7 @@ jobs:
           /tmp/smoke/bin/pip install dist/*.whl
           /tmp/smoke/bin/python -c "import llm_bench; print('llm_bench', llm_bench.__version__, 'at', llm_bench.__file__)"
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: dist
           path: dist/
