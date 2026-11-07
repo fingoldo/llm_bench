@@ -256,7 +256,7 @@ DEP002 = [
     "httpx", "tenacity", "pydantic",
     "ruff", "black", "mypy", "pytest", "pytest-asyncio", "pytest-cov", "pytest-timeout", "hypothesis",
     "pre-commit", "detect-secrets", "py-ci-shared",
-    "vulture", "interrogate", "deptry", "codespell", "yamllint", "pytest-xdist",
+    "vulture", "interrogate", "deptry", "codespell", "yamllint", "pytest-xdist", "vermin",
 ]
 
 # ── codespell ───────────────────────────────────────────────────────
