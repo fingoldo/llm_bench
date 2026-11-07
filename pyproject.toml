@@ -54,6 +54,7 @@ dev = [
     "pytest-asyncio>=0.23",
     "pytest-cov>=4.0",
     "pytest-timeout>=2.2",
+    "vermin>=1.6",  # api_floor gate
     # test_branch_coverage_ratchet.py spawns a nested `pytest ... -n auto` subprocess to combine
     # branch-coverage data across xdist workers; without xdist installed that subprocess dies with
     # "unrecognized arguments: -n" (confirmed in CI 2026-08-04 -- was never actually declared here).
